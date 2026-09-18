@@ -1,36 +1,35 @@
 ---
 name: dsh-plugin-dev-notes
-description: 开发 DeepSeek Harness (dsh) 插件的双面（Node + 浏览器）实战笔记：dual-face 插件结构、dsh.bundle.patch 一条命令安装、dsh.client 浏览器 roster、/api 精确路由、client HMR 热更循环，以及「以本机安装的 dsh 源码为唯一事实来源」的验证方法论。
-whenToUse: 当任务涉及为 DeepSeek Harness (dsh) 编写、修改或调试插件，尤其是 Web 界面（浏览器侧）插件、双面插件、bundle 打包与安装、@deepseek-ai/dsh-* API 用法，或需要针对本机安装的 dsh 版本验证插件 API 事实时加载。
+description: Field notes for developing DeepSeek Harness (dsh) plugins, focused on dual-face plugins (Node host half + browser client half): dsh.bundle.patch one-command install, the dsh.client browser roster, /api exact routes, client HMR semantics, and a verify-against-installed-source methodology.
+whenToUse: Load when building, modifying, or debugging DeepSeek Harness (dsh) plugins — especially web UI (browser-side) and dual-face plugins, bundle packaging and install, @deepseek-ai/dsh-* API usage — or when any plugin API claim needs verification against the locally installed dsh source.
 ---
 
-# dsh 插件开发实战笔记（dual-face 视角）
+# dsh Plugin Development Field Notes (dual-face perspective)
 
-> 本 skill 是一份经过实机验证的开发笔记，聚焦一个更完整视角：**插件 = Host 半（Node/Cordis）+ Client 半（浏览器）**。
-> 相比社区已有的 tool 向资料（green-dalii/dsh-plugin-dev-skill 的 Cordis 心智模型、dsh-io/dsh-plugin-skill 的 tool API 快照），本笔记补上了 Web UI 插件这块它们没覆盖的领域，并把「一切以本机安装的官方源码为唯一事实来源」作为工作方法。
+> This is a field-verified operating manual focused on one underserved perspective: **a plugin = a Host half (Node/Cordis) + a Client half (browser)**. Compared with the community skills — [green-dalii/dsh-plugin-dev-skill](https://github.com/green-dalii/dsh-plugin-dev-skill) (Cordis mental model, tools, LLM adapters, config, publishing) and [dsh-io/dsh-plugin-skill](https://github.com/dsh-io/dsh-plugin-skill) (tool API snapshot + scaffold CLI) — this skill covers the web-UI/plugin territory they leave out, and treats **the locally installed dsh source as the single source of truth**.
 >
-> **验证基线**：`@deepseek-ai/dsh@0.1.5-rc.2`（2026-09-18），并已对照 `0.1.6-alpha.2` 复核——复核记录与升级流程见 [CHECKLIST.md](CHECKLIST.md)。
+> **Verification baseline**: every template here ran for real on dsh `0.1.5-rc.2`, and the fact table was re-verified against `0.1.6-alpha.2` — see [CHECKLIST.md](CHECKLIST.md) for the recheck log and the per-release procedure.
 
-## 0. 三层事实来源（先读这个）
+## 0. Three layers of truth (read first)
 
-写任何 dsh 代码前，按此优先级取材：
+Before writing any dsh code, source material in this priority order:
 
-1. **官方源码 = 唯一最终事实来源。** 你机器上正在运行的 dsh 安装就是权威：包 README（质量极高）+ 构建产物 + 类型定义。位置：npm 全局安装的 `node_modules/@deepseek-ai/dsh*`（`npm root -g` 或 npx 缓存里找）。
-2. **当前 API 快照参考**：dsh-io/dsh-plugin-skill（tool API 与脚手架 CLI `npx @dsh-io/dsh-dev scaffold`）。
-3. **第一版体系化参考**：green-dalii/dsh-plugin-dev-skill（Cordis 心智模型、tool/LLM/配置/发布全套）。
+1. **Official installed source = the single final source of truth.** The dsh install running on this machine is authoritative: package READMEs (exceptionally good), built `lib/*.js`, and `lib/types/*.d.ts`. Location: `node_modules/@deepseek-ai/dsh*` under the global npm root (or the npx cache).
+2. **Current API snapshot**: dsh-io/dsh-plugin-skill (tool API, scaffold CLI `npx @dsh-io/dsh-dev scaffold`).
+3. **First systematic reference**: green-dalii/dsh-plugin-dev-skill.
 
-⚠️ 参考仓库与你的 dsh 版本可能不一致（不同 rc 之间 API 会漂移）。**凡引用的 API，先在本地源码 grep 确认签名再用**（方法见 references/fact-sources.md）。
+⚠️ Reference repos drift from your dsh version (APIs move between rcs). **Grep the local source to confirm every signature before using it** — the technique is in `references/fact-sources.md`.
 
-## 1. 心智模型：一个包，两个半身
+## 1. Mental model: one package, two halves
 
-dsh 的 Web 界面本身就是一堆「双面插件」拼出来的（ui-workspace、ui-sidebar…）。你的插件也可以是：
+The dsh web GUI itself is assembled from "dual-face" plugins (ui-workspace, ui-sidebar, …). Yours can be one too:
 
-| 半身 | 位置 | 跑在哪 | 导出 |
+| Half | File | Runs in | Exports |
 |---|---|---|---|
-| Host | `lib/index.js`（`"main"`） | Node，Cordis Loader | `apply(ctx, config)`、可选 `name`/`inject`/`Config` |
-| Client | `lib/client.js`（exports `"./client"`） | 浏览器，dsh 客户端模块系统 | bundle 注册形式（见 §4） |
+| Host | `lib/index.js` (`"main"`) | Node, the Cordis Loader | `apply(ctx, config)`, optional `name`/`inject`/`Config` |
+| Client | `lib/client.js` (exports `"./client"`) | Browser, dsh client module system | bundle registration form (§4) |
 
-- `package.json` 的 `"dsh"` 字段同时声明两个半身（可只要其中一个）：
+- Both halves are declared in one `package.json` `dsh` field (either half alone is fine):
   ```json
   {
     "main": "lib/index.js",
@@ -41,41 +40,40 @@ dsh 的 Web 界面本身就是一堆「双面插件」拼出来的（ui-workspac
     }
   }
   ```
-- Host 半是普通 Cordis 插件（函数形态为主；需要对外提供服务时用 `Service` 子类）。Cordis 铁律见 green-dalii skill §1-§9，此处不重复；本笔记只强调验证过的一点：**函数插件的 `export const inject = ['connection']` 会被 Loader 兑现**（服务在 apply 前就绪）。
-- Client 半不是普通模块：文件内容整体是 `window.__ModuleLoader__.load({ id: "<包名>", factory: (require) => { ...; return module.exports; } })`。官方包用 tsdown/esbuild 产出这个形状；手写或 esbuild 包装都行（dsh-pocket 用 esbuild 包装，见 references/web-ui-plugins.md §6）。
-- 不需要 React 就别引 React：自包含 bundle（零外部 import）最省心，平台模块表（platform seed）目前只有 react、react/jsx-runtime、react-dom、react-dom/client、@deepseek-ai/cordis、dsh-client-store、dsh-client-ui-slots、dsh-client-ui-primitives、dsh-client-ui-dockkit（从已构建前端产物中提取，随版本可能变——用前先验证，见 references/fact-sources.md）。
+- The Host half is a plain Cordis plugin (function form first; a `Service` subclass only when you provide a service). The Cordis iron rules live in the green-dalii skill §1–§9. One verified extra fact here: **a function plugin's `export const inject = ['connection']` is honored by the Loader** (services resolve before `apply` runs).
+- The Client half is not a normal module: the whole file is `window.__ModuleLoader__.load({ id: "<package name>", factory: (require) => { ...; return module.exports; } })`. Official packages produce this shape with tsdown/esbuild; hand-write or wrap with esbuild (dsh-pocket wraps, see `references/web-ui-plugins.md` §6).
+- Don't pull React if you don't need it: a self-contained bundle (zero imports) is the lowest-friction option. The platform module table currently holds react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis, dsh-client-store, dsh-client-ui-slots, dsh-client-ui-primitives, dsh-client-ui-dockkit (extracted from the built frontend; may change between versions — verify first, see `references/fact-sources.md`).
 
-## 2. 一条命令安装的秘密：`dsh.bundle.patch`
+## 2. The one-command install secret: `dsh.bundle.patch`
 
-`dsh plugin --profile web add <包名> -w` 之所以一步到位：命令转发 pnpm 装包，装完 `reconcilePlugins` 扫描每个依赖的 manifest，**声明了 `dsh.bundle.patch` 的包自动追加进 profile 的 `dsh.profile.bundles` 层叠列表**。包自带的 `cordis.patch.yml` 作为一层 patch 参与组合树。
+Why `dsh plugin --profile web add <pkg> -w` is one step: the command forwards to pnpm inside the profile, then reconcile scans each installed dependency's manifest — **a package declaring `dsh.bundle.patch` is appended to the profile's `dsh.profile.bundles` layer list automatically**. The package's own `cordis.patch.yml` joins the composed tree as one patch layer.
 
 ```yaml
-# 包根的 cordis.patch.yml
+# the package's cordis.patch.yml
 - insert:
-    - id: session-emoji          # 稳定 id
-      name: dsh-plugin-session-emoji   # 包名，从 profile node_modules 解析
+    - id: session-emoji          # stable id
+      name: dsh-plugin-session-emoji   # package name, resolved from profile node_modules
 ```
 
-要点：
-- `-w` 必须带（profile 是 pnpm workspace，否则 `ERR_PNPM_ADDING_TO_ROOT`）。
-- git 依赖拉的是源码；**无构建脚本的包最省事**。有 `prepare` 脚本时 pnpm 默认拒绝，需在 profile 的 `pnpm-workspace.yaml` 加 `allowBuilds`（诚实告知用户这是允许安装期执行代码）。
-- patch 层顺序：bundles 依序 → profile `cordis.patch.yml` → `$DSH_HOME/cordis.patch.yml` → `--patch` overlays。**后层按行胜出，且替换目标行整个 config（非深合并）**——覆盖别层的行要重述它需要的所有键。
-- 更新/卸载：`dsh plugin --profile web update|remove <包名> -w`。
-- **bundle 层的增删不参与热重载，装完要重启 `dsh web`**（patch 文件本身的热重载见 §5）。
+- `-w` is required (the profile is a pnpm workspace; without it: `ERR_PNPM_ADDING_TO_ROOT`).
+- Git deps install source; **build-script-free packages are the smooth case**. With a `prepare` script, pnpm blocks it until `allowBuilds` is added to the profile's `pnpm-workspace.yaml` (tell the user honestly: that authorizes code execution at install time).
+- Layer order: bundles in listed order → profile `cordis.patch.yml` → `$DSH_HOME/cordis.patch.yml` → `--patch` overlays. **Later layers win per row, and a patch replaces the target row's whole `config` (no deep merge)** — when overriding another layer's row, restate every key it needs.
+- Update/remove: `dsh plugin --profile web update|remove <pkg> -w`.
+- **Bundle additions/removals do not hot-reload; restart `dsh web`** (patch-file hot reload is §5).
 
-## 3. Host 半：在共享认证通道上开你自己的 API
+## 3. Host half: your own API on the shared authenticated channel
 
-Web GUI 的所有浏览器↔宿主通信走 `/api` 前缀，由 `dsh-client-connection` 统一加围栏（Host/Origin 校验 + 浏览器 cookie 认证）。你的插件注册「精确 Fetch 路由」即可白嫖这套安全模型，**零鉴权代码**：
+All browser↔host traffic of the web GUI runs under the `/api` prefix (`dsh-client-connection`, constant `API_PATH = "/api"`), fenced by that package (Host/Origin checks + browser cookie auth). Register an **exact Fetch route** and inherit the whole security model with **zero auth code**:
 
 ```js
 export const inject = ['connection'];
 
 export async function apply(ctx) {
   ctx.connection.fetch.register({
-    path: '/api/my-plugin/data',          // 必须在 /api/ 下
-    methods: ['GET', 'POST'],             // 同一路径只能注册一次，多方法合一
-    requestBody: 'buffered',              // 或流式
-    fetch: async (request) => {           // 标准 Fetch API Request → Response
+    path: '/api/my-plugin/data',          // must be under /api/
+    methods: ['GET', 'POST'],             // one route per path; fold methods into one registration
+    requestBody: 'buffered',              // or streaming
+    fetch: async (request) => {           // standard Fetch Request → Response
       if (request.method === 'GET') return Response.json({ /* ... */ });
       const body = await request.json();
       return Response.json({ ok: true });
@@ -84,74 +82,77 @@ export async function apply(ctx) {
 }
 ```
 
-- 路由按 path 键控：重复注册同一路径会 throw；把多个方法放进一次注册、内部分发。
-- 浏览器端直接 `fetch('/api/my-plugin/data')`（同源，cookie 自动带上；curl 无 cookie 会得到 401——这就是验证路由已注册的探针）。
-- 需要 RPC/流式/生成端点时才考虑 Typert（`@deepseek-ai/dsh-typert-protocol` 的 `TypertRemoteService` + `Remote` 装饰器 + 生成的 `TYPERT`/`TYPERT_REMOTE` 工件，client 侧 `ctx.remote.$mount()`）；小插件用精确路由足够。
-- 持久化：写 `$DSH_HOME/storages/<你的名字>.json`（workspace controller 同款位置）。并发写用 promise 链串行化 + temp/rename 原子替换。
+- Routes are keyed by path: registering the same path twice throws; register once and dispatch internally.
+- Browser side: plain `fetch('/api/my-plugin/data')` (same-origin; the cookie rides along; curl without a cookie gets 401 — that's your "route registered" probe).
+- Reach for Typert (`@deepseek-ai/dsh-typert-protocol`: `TypertRemoteService` + `Remote` decorators + generated `TYPERT`/`TYPERT_REMOTE` artifacts, mounted client-side via `ctx.remote.$mount()`) only for RPC/streaming/generated endpoints; exact routes cover small plugins.
+- Persistence: write `$DSH_HOME/storages/<your-name>.json` (the same user-data area the workspace controller uses). Serialize concurrent writes with a promise chain + atomic temp/rename.
 
-## 4. Client 半：进入浏览器 roster
+## 4. Client half: joining the browser roster
 
-宿主把每个带 `dsh.client` 的活动行扫描进 `window.__DSH_BOOT__`（boot graph），浏览器按图懒加载 bundle。
+The host scans every active row carrying `dsh.client` into `window.__DSH_BOOT__` (the boot graph), injected into the page via the index HTML; the browser lazy-loads bundles along it.
 
-- **`dsh.client` 字段**（0.1.5-rc.2 校验逻辑）：`platform`（必填字符串，web）、`inject`（字符串数组：要求哪些插件行先加载，同时是模块 external 的来源）、`external`（额外的非平台模块请求）、`immediately`（boolean：启动即预取，不等首次使用）。
-- **bundle 形状**（浏览器 CJS，factory 只注册不执行，副作用全在闭包里、首次 materialize 时才跑）：
+- **`dsh.client` fields** (0.1.5-rc.2 `parseDshClient`): `platform` (required string, "web"), `inject` (string[]: which plugin rows must load first — also what makes `require("@deepseek-ai/<pkg>")` resolvable inside your bundle), `external` (extra non-platform module requests), `immediately` (boolean: prefetch at boot instead of first use).
+- **Bundle shape** (browser CJS; executing only registers the factory, side effects run at materialization):
   ```js
   window.__ModuleLoader__.load({
-    id: "my-plugin",                    // 必须等于包名
+    id: "my-plugin",                    // must equal the package name
     factory: (require) => {
       var module = { exports: {} };
       var exports = module.exports;
-      // ...全部代码，副作用都在这里...
+      // ---- all code; every side effect (CSS injection included) in this closure ----
       async function apply(ctx) { /* ... */ return async () => { /* cleanup */ }; }
-      exports.inject = [];              // 客户端 cordis 的服务注入
+      exports.inject = [];              // client-side cordis service injection
       exports.apply = apply;
       return module.exports;
     }
   });
   ```
-- **操作既有 UI 的两条路**：
-  1. **Slot 注入**（官方姿势）：先看目标包是否留了槽位（`ctx.slots.inject("sidebar.workspaces", ...)` / hole / 声明合并的注册点）。ui-workspace/ui-sidebar 的 README 列了各自的 seat。
-  2. **DOM 增强**（目标组件未留扩展点时）：MutationObserver + 结构化选择器（`[role="treeitem"]`）+ React fiber 读取（`__reactFiber$` 前缀 key → 沿 `fiber.return` 找行组件 props 里的数据，如 `node.id`）+ **`data-*` 属性 + 注入一段 CSS `::before content: attr()` 渲染**——绝不往 React 管理的子节点里插元素。设置属性、挂 style tag 都不会被 React 重渲染清掉；style tag 加 `data-plugin="<你的包名>"`（HMR 卸载会清同名的）。
-  - 判断标准：有槽位走槽位；没有才 DOM 增强，并把选择器/props 形状记进注释，dsh 升级后好排查。
-- **client `inject` 的真相**：它既声明加载顺序（依赖行先上），也是你 bundle 内 `require("@deepseek-ai/<pkg>")` 能解析到的来源（external 语义：<pkg> 或 <pkg>/client 解析到该包的 client 半；平台表内的名字无需声明）。
+- `require()` resolution: platform seed → materialized modules → graph rows → registered factories → **throw** (a package missing from the table and from `dsh.client.inject` fails loudly at runtime).
+- Needing React/JSX: wrap esbuild output like dsh-pocket does (`format:'cjs', platform:'browser'`, `external: ['react', 'react/jsx-runtime', ...]`, embed the text into the `__ModuleLoader__.load` wrapper, `var React = require("react")` inside). A zero-dependency DOM-only UI needs no bundler at all.
+- **Two ways to touch existing UI**:
+  1. **Slot injection (the official way)**: check the target package for seats — `ctx.slots.inject("sidebar.workspaces", ...)` / holes / declaration-merged registration points. The ui-workspace and ui-sidebar READMEs enumerate theirs.
+  2. **DOM augmentation** (when the component exposes no extension point — this plugin's path): MutationObserver + structural selectors (`[role="treeitem"]`) + React fiber reading (`__reactFiber$`-prefixed key → walk `fiber.return` for the row component's data props, e.g. `node.id`) + **render via a `data-*` attribute and one injected CSS rule `::before content: attr()`** — never insert elements among React-managed children. Attribute writes and style tags survive React re-renders; tag style tags with `data-plugin="<your package>"` (HMR teardown removes them by that convention).
+  - Decision rule: slots first; DOM augmentation only when no slot exists — and record your selectors/props shape in comments for the next dsh upgrade.
 
-## 5. 开发热更循环（省时间的核心）
+## 5. Dev hot-reload loop (where the time goes)
 
-| 改动 | 生效方式 |
+| Change | Takes effect |
 |---|---|
-| `lib/client.js`（浏览器半） | **保存即热替换**：`dsh-client-hmr` 对每个 graph bundle 做 stat 轮询（默认 500ms），检测到变化走 `rebuilt()` → 浏览器内卸旧挂新，无需刷新页面 |
-| Host 半 | 重启 `dsh web`（Host 代码随进程加载） |
-| bundle 的 `cordis.patch.yml`（内容行变更） | patch 文件被 watch，热重载 |
-| `dsh.profile.bundles`（装/卸包） | **不热重载，重启** |
+| `lib/client.js` (browser half) | **Save and it hot-swaps**: `dsh-client-hmr` stat-polls every graph bundle (default 500ms); on change it `rebuilt()` → old fiber torn down, new one mounted, no page reload |
+| Host half | Restart `dsh web` (host code loads with the process) |
+| A bundle's `cordis.patch.yml` (content rows) | Patch files are watched — hot reload |
+| `dsh.profile.bundles` (install/remove/update) | **Not hot-reloaded; restart `dsh web`** |
 
-开发期装法：`dsh plugin --profile web add link:/abs/path/to/pkg -w`（link: 软链，改源码直接生效）；或 `file:`（复制，改完要重装）。
-注意：HMR 换的是插件实例，React 状态会丢（连接/会话等数据层不丢）；reload 失败该插件进 FAILED 态，不自动回滚；仅 source map 变化不触发代码重载。
+Dev install: `dsh plugin --profile web add link:/abs/path/to/pkg -w` (link: symlink — source edits apply directly) or `file:` (copied — reinstall after edits).
+HMR caveats: the swap resets the plugin's React state (connection/session data layers survive); a failed reload leaves the entry FAILED with no rollback; a source-map-only write does not reload code.
 
-## 6. 验证清单（动手前后各过一遍）
+## 6. Verification checklist
 
-- [ ] `node --check` / 实际 import 过 host 半；bundle 用 vm 模拟 `__ModuleLoader__.load` 跑一遍 factory（无浏览器也能抓住语法/注册错误）
-- [ ] `dsh --profile web --dump-config` 预览组合树，确认你的行在（别启动）
-- [ ] 装好后探针：`curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3080/api/<你的路由>` → 401=已注册（围栏拦下未认证请求），404=没装上；带浏览器 cookie 才能看到 200
-- [ ] 浏览器侧：刷新页面（boot graph 随 index 注入，热更后不用刷）；DevTools console 看 `[你的插件名]` 告警与 failed entries 提示
-- [ ] 卸载路径：`dsh plugin --profile web remove <包名> -w` → 重启 → 探针 404、界面无残留
+- [ ] Host half: `node --check` / actually import it; bundle: run the factory in a `vm` with a stubbed `window.__ModuleLoader__` (catches syntax/registration errors without a browser)
+- [ ] `dsh --profile web --dump-config` previews the composed tree (no boot needed) — confirm your row
+- [ ] After install, probe: `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3080/api/<your route>` → 401 = registered (the fence rejects unauthenticated requests), 404 = not installed; 200 requires a browser cookie
+- [ ] Browser: refresh the page (the boot graph ships with the index; after an HMR swap you don't refresh); check DevTools console for your `[plugin-name]` warnings and failed-entry hints
+- [ ] Uninstall path: `dsh plugin --profile web remove <pkg> -w` → restart → probe 404, no UI residue
 
-## 7. 常见坑（实机踩过的）
+## 7. Pitfalls (all field-tested)
 
-| 坑 | 真相 |
+| Pitfall | Reality |
 |---|---|
-| 手动改 profile 的 cordis.patch.yml 而不是用 bundle | 能跑但不是惯例；用 `dsh.bundle.patch` 才是一条命令 |
-| 同一路径注册两次精确路由 | `fetchRoutes` 按 path 键控，第二次 throw；多方法合进一次注册 |
-| bundle 里 `require("react")` 但没进平台表 | react 在平台表里没问题；**不在表里的包必须进 `dsh.client.inject`（external）**，否则运行时 throw "missed the module table" |
-| 往 React 管理的子节点插 DOM | 会被 reconcile 清/乱；用 `data-*` + CSS `::before` 或 slot |
-| 忘了 `-w` | pnpm 报 `ERR_PNPM_ADDING_TO_ROOT` |
-| 装完没反应就一直等 | bundle 层不热重载，重启 `dsh web`；client.js 改动才是热替换 |
-| `pnpm peers check` 报缺 peer | 先看是谁的 peer——常见是别的插件（如 dsh-pocket）的，与你无关 |
-| 依赖别的包 client 半的导出 | 对方得真的从 `./client` 导出（官方包类型在 `lib/types/client/`），且把它加进你的 `dsh.client.inject` |
+| Hand-editing the profile's cordis.patch.yml instead of shipping a bundle | Works, but not the convention; `dsh.bundle.patch` is the one-command path |
+| Registering the same exact route path twice | `fetchRoutes` is path-keyed; the second registration throws — fold methods into one registration |
+| `require("react")` in a bundle | react is in the platform table; **anything not in the table must be listed in `dsh.client.inject` (external)** or it throws "missed the module table" |
+| Inserting DOM among React-managed children | Reconciled away or corrupted; use `data-*` + CSS `::before` or a slot |
+| Forgetting `-w` | pnpm fails with `ERR_PNPM_ADDING_TO_ROOT` |
+| Installed but "nothing happened" | bundle layers don't hot-reload — restart `dsh web`; only client.js edits hot-swap |
+| `pnpm peers check` complaints | Check whose peer is missing — often another plugin's (e.g. dsh-pocket's), not yours |
+| Importing another package's client half | It must actually export `./client` (official types live in `lib/types/client/`), and it goes in your `dsh.client.inject` |
 
-## 8. 延伸阅读
+## 8. Further reading
 
-- `references/web-ui-plugins.md` —— dual-face 全流程：从零到跑通一个 Web 插件的完整代码与验证记录（本 skill 的主菜）
-- `references/fact-sources.md` —— 事实来源分层与「对本地源码验证 API」的 grep 手法清单
-- green-dalii/dsh-plugin-dev-skill —— Cordis 心智模型 / tool / LLM adapter / 配置 / 发布（本笔记不重复的部分）
-- dsh-io/dsh-plugin-skill —— tool API 快照与 `@dsh-io/dsh-dev` 脚手架
-- 官方文档站：https://deepseek-harness.github.io/deepseek-harness/ ；源码：https://github.com/deepseek-ai/deepseek-harness
+- `references/web-ui-plugins.md` — the full dual-face walkthrough with verification records (the main course)
+- `references/fact-sources.md` — the fact-source hierarchy and source-verification techniques
+- [CHECKLIST.md](CHECKLIST.md) — the 15-minute re-verification procedure for each new dsh release
+- green-dalii/dsh-plugin-dev-skill — Cordis mental model / tools / LLM adapters / config / publishing (not duplicated here)
+- dsh-io/dsh-plugin-skill — tool API snapshot and the `@dsh-io/dsh-dev` scaffold
+- Docs: https://deepseek-harness.github.io/deepseek-harness/ ; source: https://github.com/deepseek-ai/deepseek-harness
+- Worked example: https://github.com/cholf5/dsh-plugin-session-emoji

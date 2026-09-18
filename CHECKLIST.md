@@ -1,57 +1,57 @@
-# 升级复核清单（CHECKLIST）
+# The upgrade recheck checklist
 
-> dsh 处于 0.x rc 快速演进期，本笔记每条事实都有版本半衰期。本清单把「dsh 升级后复核一次」压成 15 分钟的可执行流程——**这是本仓库长期价值的核心维护动作**。
+> dsh moves fast through 0.x rcs, and every fact in these notes has a version half-life. This checklist compresses "re-verify after a dsh upgrade" into a 15-minute executable procedure — **it is the core maintenance motion that keeps this repo valuable over time.**
 >
-> 验证方法论细节见 `references/fact-sources.md`；本文是其调度层。
+> The verification methodology lives in `references/fact-sources.md`; this file is its scheduler.
 
-## 何时触发
+## When to run
 
-任一条件满足即跑一轮：
+Any of these triggers a round:
 
 ```sh
-# 本机安装版本
-dsh --version   # 或看 ~/.npm/_npx/*/node_modules/@deepseek-ai/dsh/package.json
-# npm 最新版
+# the locally installed version
+dsh --version   # or read ~/.npm/_npx/*/node_modules/@deepseek-ai/dsh/package.json
+# the npm latest
 npm view @deepseek-ai/dsh version
 ```
 
-- npm `latest` 版本号 > 笔记基线版本（见底部复核记录表）
-- 用户报告「skill 说的和实际行为对不上」
+- npm `latest` is newer than the notes' baseline version (see the recheck log at the bottom)
+- A user reports "the skill says X but the behavior is Y"
 
-## 复核步骤
+## Procedure
 
-1. **取新源码，不动本机安装**（运行中的 dsh 永远不要碰）：
+1. **Fetch the new source without touching the local install** (never disturb a running dsh):
    ```sh
    mkdir -p /tmp/dsh-recheck && cd /tmp/dsh-recheck
    npm pack @deepseek-ai/<pkg>@<new> --pack-destination .
    tar -xzf deepseek-ai-<pkg>-<new>.tgz -C <pkg> --strip-components=1
    ```
-   需要复核的包（见下表）。注意 0.1.6-alpha.2 起 `dsh plugin` 的 reconcile 逻辑搬进了新包 `@deepseek-ai/dsh-plugin-manager`。
-2. **逐条 grep 裁决**（关键事实 → 验证命令，当前全部针对事实表行）：
+   Packages to recheck (see the table). Note: since 0.1.6-alpha.2, the `dsh plugin` reconcile logic lives in the new `@deepseek-ai/dsh-plugin-manager` package.
+2. **Grep-verdict fact by fact** (key facts → commands, run inside the extracted dirs):
 
-| # | 事实 | 验证命令（在解包目录内） |
+| # | Fact | Verification command |
 |---|---|---|
-| F1 | `dsh.bundle.patch` 依赖自动挂进 `dsh.profile.bundles` | `grep -n "dsh?.bundle" <dsh-plugin-manager 或 dsh>/lib/*.js` 找 `reconcile` |
-| F2 | patch 后层按行胜出、整 config 替换 | `grep -o "replaces the targeted row" dsh-web-app/cordis.patch.yml` |
-| F3 | 精确路由按 path 键控；`/api` 围栏先于分发 | `grep -o 'API_PATH = "[^"]*"' dsh-client-connection/lib/index.js` + `grep fetchRoutes.has` |
-| F4 | `dsh.client` 字段校验（platform/inject/external/immediately） | `grep -o "parseDshClient" dsh-client-modules/lib/index.js` 后读上下文 |
-| F5 | bundle 形状 `window.__ModuleLoader__.load({id, factory})` 懒 CJS | `grep -c "__ModuleLoader__.load" dsh-client-modules/lib/client.js` |
-| F6 | skill 名 pattern | `grep -o "SKILL_NAME = [^;]*" dsh-skill/lib/index.js` |
-| F7 | skill 根表 / frontmatter 键 / symlink 跟随 | `grep -o "followSymlinks\|nodeEntryKind\|disable-model-invocation" dsh-skill-filesystem/lib/index.js` |
-| F8 | HMR stat 轮询（默认 500ms）、map-only 不重载、FAILED 不回滚 | `grep -o "pollIntervalMs" dsh-client-hmr/README.md` + 读 README 变更 |
-| F9 | 会话行 `[role=treeitem]`、fiber `props.node`、`SessionNode{id,title,updatedAt}` | `grep -c 'role: "treeitem"' dsh-client-ui-workspace/lib/client.js` + 读 `lib/types/client/tree.d.ts` |
-| F10 | 平台模块种子表 | `grep -o "staticModules" dsh-web-frontend/dist/assets/index-*.js` 后提取该函数全键列表 |
-| F11 | `defineTool` output 必填、`required` per-property | `grep -o "required?: true" dsh-tools/lib/types/schema.d.ts` + `grep "Mandatory canonical output" dsh-tools/lib/types/index.d.ts` |
+| F1 | `dsh.bundle.patch` deps auto-append to `dsh.profile.bundles` | `grep -n "dsh?.bundle" <dsh-plugin-manager or dsh>/lib/*.js` then find `reconcile` |
+| F2 | Later patch layers win per row; whole-config replacement | `grep -o "replaces the targeted row" dsh-web-app/cordis.patch.yml` |
+| F3 | Exact routes are path-keyed; the `/api` fence dispatches first | `grep -o 'API_PATH = "[^"]*"' dsh-client-connection/lib/index.js` + `grep fetchRoutes.has` |
+| F4 | `dsh.client` field validation (platform/inject/external/immediately) | `grep -o "parseDshClient" dsh-client-modules/lib/index.js` then read around it |
+| F5 | bundle shape `window.__ModuleLoader__.load({id, factory})`, lazy CJS | `grep -c "__ModuleLoader__.load" dsh-client-modules/lib/client.js` |
+| F6 | skill-name pattern | `grep -o "SKILL_NAME = [^;]*" dsh-skill/lib/index.js` |
+| F7 | skill roots / frontmatter keys / symlink following | `grep -o "followSymlinks\|nodeEntryKind\|disable-model-invocation" dsh-skill-filesystem/lib/index.js` |
+| F8 | HMR stat-poll (default 500ms), map-only no reload, FAILED no rollback | `grep -o "pollIntervalMs" dsh-client-hmr/README.md` + read the README diff |
+| F9 | session row `[role=treeitem]`, fiber `props.node`, `SessionNode{id,title,updatedAt}` | `grep -c 'role: "treeitem"' dsh-client-ui-workspace/lib/client.js` + read `lib/types/client/tree.d.ts` |
+| F10 | platform module seed table | `grep -o "staticModules" dsh-web-frontend/dist/assets/index-*.js` then extract the seed function's full key list |
+| F11 | `defineTool` output mandatory, `required` per-property | `grep -o "required?: true" dsh-tools/lib/types/schema.d.ts` + `grep "Mandatory canonical output" dsh-tools/lib/types/index.d.ts` |
 
-3. **裁决记录**：漂移的事实 → 改 SKILL.md / references 对应行，并在 `references/fact-sources.md` 的出处表更新出处；无漂移 → 只在底部记录表加一行。
-4. **发布**：提交（`recheck: against dsh <new>`）→ 打 tag `v0.1.<n>`（复核轮次递增）→ push（含 `--tags`）。
-5. **清理**：`rm -rf /tmp/dsh-recheck`。
+3. **Record the verdicts**: drifted facts → fix the corresponding lines in SKILL.md / references and update the source citations in `references/fact-sources.md`; no drift → just append a row to the log below.
+4. **Ship**: commit (`recheck: against dsh <new>`) → tag `v0.1.<n>` (incrementing recheck rounds) → push (including `--tags`).
+5. **Clean up**: `rm -rf /tmp/dsh-recheck`.
 
-## 复核记录
+## Recheck log
 
-| 日期 | 笔记 commit | dsh 版本 | 结论 |
+| Date | Notes commit | dsh version | Verdict |
 |---|---|---|---|
-| 2026-09-18 | d226319（首次发布基线） | 0.1.5-rc.2 | 全部 11 条事实在该版本上验证通过 |
-| 2026-09-18 | （本轮） | 0.1.6-alpha.2 | F1–F11 全部无行为漂移；唯一出处变化：F1 的 reconcile 逻辑从 dsh CLI 的 `lib/plugin-*.js` 移入新包 `@deepseek-ai/dsh-plugin-manager/lib/index.js`（`reconcile()`，语义不变：声明 `dsh.bundle.patch` 的新依赖自动 push 进 bundles，无声明则告警装为普通依赖）。fact-sources.md 出处已更新。 |
+| 2026-09-18 | d226319 (first-release baseline) | 0.1.5-rc.2 | all 11 facts verified on that version |
+| 2026-09-18 | (this round) | 0.1.6-alpha.2 | F1–F11 no behavioral drift; the only source move: F1's reconcile logic relocated from the dsh CLI's `lib/plugin-*.js` into the new package `@deepseek-ai/dsh-plugin-manager/lib/index.js` (`reconcile()`, same semantics: new deps declaring `dsh.bundle.patch` are auto-pushed into bundles; deps without one are installed as plain dependencies with a warning). fact-sources.md citations updated. |
 
-> 基线：本笔记所有内容最初在 `@deepseek-ai/dsh@0.1.5-rc.2` 上验证（2026-09-18）。
+> Baseline: everything in these notes was first verified on `@deepseek-ai/dsh@0.1.5-rc.2` (2026-09-18).

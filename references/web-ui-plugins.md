@@ -1,17 +1,17 @@
-# 双面插件全流程：从零到跑通一个 Web 界面插件
+# The dual-face plugin, end to end: from zero to a working web-UI plugin
 
-> 本文是 `dsh-plugin-dev-notes` skill 的主参考。全部代码取自实机验证过的插件 `dsh-plugin-session-emoji`（在 dsh `0.1.5-rc.2` 上开发、安装、验证），每节末尾标注验证方式。
+> The main reference of the `dsh-plugin-dev-notes` skill. All code comes from the field-verified plugin `dsh-plugin-session-emoji` (developed, installed, and verified on dsh `0.1.5-rc.2`); each section ends with how it was verified.
 
-## 0. 目标插件长什么样
+## 0. What the target plugin looks like
 
-功能：Web 侧栏每个会话标题前渲染外挂 emoji；右键会话行打开选择器；映射持久化在宿主侧。
+Feature: render an externally attached emoji in front of every session title in the web sidebar; right-click a session row to open a picker; the mapping persists host-side.
 
 ```
 dsh-plugin-session-emoji/
-├── package.json          # 双面声明 + bundle patch 声明
-├── cordis.patch.yml      # 自带 patch（一条命令安装的关键）
-├── lib/index.js          # Host 半：GET/POST /api/session-emoji + JSON 持久化
-├── lib/client.js         # Client 半：行首渲染 + 右键菜单 + 选择器（自包含，零 import）
+├── package.json          # dual-face declaration + bundle patch declaration
+├── cordis.patch.yml      # the shipped patch (the one-command-install key)
+├── lib/index.js          # Host half: GET/POST /api/session-emoji + JSON persistence
+├── lib/client.js         # Client half: row decoration + context menu + picker (self-contained, zero imports)
 └── assets/preview.png
 ```
 
@@ -30,13 +30,13 @@ dsh-plugin-session-emoji/
 }
 ```
 
-## 1. Host 半：精确 Fetch 路由
+## 1. Host half: exact Fetch routes
 
-服务定位：Web GUI 所有浏览器↔宿主流量走 `/api` 前缀（`dsh-client-connection`，源码常量 `API_PATH = "/api"`）。该包对每个 `/api` 请求先做信任围栏（Host/Origin 校验）+ 浏览器 cookie 认证，再分发到：精确路由表 → RPC 通道。**精确路由自动享受围栏，插件零鉴权代码。**
+Service map: all browser↔host traffic of the web GUI runs under the `/api` prefix (`dsh-client-connection`, source constant `API_PATH = "/api"`). That package fences every `/api` request (Host/Origin checks + browser cookie auth) before dispatching to: the exact-route table → the RPC channel. **An exact route inherits the fence automatically — zero auth code in the plugin.**
 
 ```js
 export const name = "session-emoji";
-export const inject = ["connection"];        // 函数插件的 inject 导出会被 Loader 兑现
+export const inject = ["connection"];        // a function plugin's inject export is honored by the Loader
 
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
@@ -45,15 +45,15 @@ import { dirname, join } from "node:path";
 export async function apply(ctx) {
   const connection = ctx.connection;
   connection.fetch.register({
-    path: "/api/session-emoji",              // 必须在 /api/ 下，否则注册时 throw
-    methods: ["GET", "HEAD", "POST"],        // 路由按 path 键控：同路径只能注册一次
+    path: "/api/session-emoji",              // must be under /api/, or registration throws
+    methods: ["GET", "HEAD", "POST"],        // routes are keyed by path: one registration, many methods
     requestBody: "buffered",
     fetch: async (request) => {
       if (request.method === "HEAD") return new Response(null, { status: 200 });
       if (request.method === "GET")
         return Response.json({ emojis: await loadMap() }, { headers: { "cache-control": "no-store" } });
-      const body = await request.json();     // POST：校验 → 串行化写盘 → 回全量映射
-      // ... 校验 sessionId / emoji ...
+      const body = await request.json();     // POST: validate → serialized write → reply with the whole map
+      // ... validate sessionId / emoji ...
       const map = await enqueueMutation(async () => {
         const m = await loadMap();
         if (body.emoji === null) delete m[body.sessionId];
@@ -67,101 +67,101 @@ export async function apply(ctx) {
 }
 ```
 
-宿主侧持久化：`$DSH_HOME/storages/<名字>.json`（workspace controller 的 `workspace.json` 同款目录）。写盘模式：promise 链串行化（Node 单线程但 async fs 会交错）+ temp 文件 rename 原子替换 + 目录 `0o700`。
+Host-side persistence: `$DSH_HOME/storages/<name>.json` (the same user-data area as the workspace controller's `workspace.json`). Write pattern: a promise chain serializes mutations (Node is single-threaded but async fs interleaves) + atomic temp/rename + directory `0o700`.
 
-注册返回 disposer（内部 `owner.effect`），插件卸载/重载时路由自动注销——无需手动清理。
+Registration returns a disposer (an internal `owner.effect`), so the route deregisters automatically on plugin unload/reload — no manual cleanup.
 
-**验证记录**：装好后 `curl http://127.0.0.1:3080/api/session-emoji` 无 cookie → `401 unauthorized`（围栏生效、路由已注册）；404 = 没装上。带有效 cookie 的 GET 返回了种子数据全量 JSON。
+**Verification record**: after install, `curl http://127.0.0.1:3080/api/session-emoji` without a cookie → `401 unauthorized` (fence live, route registered); 404 = not installed. With a valid cookie, GET returned the full seeded map.
 
-## 2. Client 半：进入浏览器 roster
+## 2. Client half: joining the browser roster
 
-### 2.1 声明与加载管线
+### 2.1 Declaration and the loading pipeline
 
-宿主侧 `dsh-client-modules` 扫描组合树里每个带 `dsh.client` 的活动行，增量组合进 `window.__DSH_BOOT__`，随 index HTML 注入页面；浏览器按图懒加载 bundle（执行 bundle 只注册 factory，副作用在首次 materialize 时才跑）。
+The host-side `dsh-client-modules` scans every active row carrying `dsh.client` in the composed tree, incrementally folds them into `window.__DSH_BOOT__`, injects the graph via the index HTML, and the browser lazy-loads bundles along it.
 
-`dsh.client` 字段（0.1.5-rc.2 `parseDshClient` 校验逻辑）：
+`dsh.client` fields (0.1.5-rc.2 `parseDshClient` validation):
 
-| 字段 | 类型 | 作用 |
+| Field | Type | Meaning |
 |---|---|---|
-| `platform` | string（必填） | `"web"` |
-| `inject` | string[] | 依赖的插件行（先加载），同时是 bundle 内 `require("@deepseek-ai/<pkg>")` 可解析的来源 |
-| `external` | string[] | 额外非平台模块请求（`<pkg>` 或 `<pkg>/client` 都解析到该包的 client 半） |
-| `immediately` | boolean | 启动即预取（否则首次使用才加载） |
+| `platform` | string (required) | `"web"` |
+| `inject` | string[] | dependent plugin rows (load first); also what makes `require("@deepseek-ai/<pkg>")` resolvable inside the bundle |
+| `external` | string[] | extra non-platform module requests (`<pkg>` or `<pkg>/client` resolve to that package's client half) |
+| `immediately` | boolean | prefetch at boot instead of first use |
 
-### 2.2 bundle 文件形状
+### 2.2 The bundle file shape
 
-整个 `lib/client.js` 就是：
+The whole `lib/client.js` is:
 
 ```js
 window.__ModuleLoader__.load({
-  id: "dsh-plugin-session-emoji",            // 必须等于包名
+  id: "dsh-plugin-session-emoji",            // must equal the package name
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
-    // ---- 全部代码；所有副作用（含 CSS 注入）都在这个闭包里 ----
+    // ---- all code; every side effect (CSS injection included) in this closure ----
     async function apply(ctx) {
-      // ...注册 MutationObserver / 事件监听...
-      return async () => { /* cleanup：断开 observer、移除监听、删 style tag */ };
+      // ... MutationObserver / event listeners ...
+      return async () => { /* cleanup: disconnect observer, remove listeners, remove style tag */ };
     }
-    exports.inject = [];                     // 客户端 cordis 服务注入（不需要就空数组）
+    exports.inject = [];                     // client-side cordis service injection (empty if unneeded)
     exports.apply = apply;
     return module.exports;
   }
 });
 ```
 
-- `require()` 解析顺序：平台种子表 → 已 materialize 模块 → graph 行 → 已注册 factory → **throw**（不在表里且没进 `dsh.client.inject` 的包直接运行时报错）。
-- 平台种子表（从已构建前端 `dsh-web-frontend/dist/assets/index-*.js` 中提取的 `by()` 函数）：`react`、`react/jsx-runtime`、`react-dom`、`react-dom/client`、`@deepseek-ai/cordis`、`@deepseek-ai/dsh-client-store`、`@deepseek-ai/dsh-client-ui-slots`、`@deepseek-ai/dsh-client-ui-primitives`、`@deepseek-ai/dsh-client-ui-dockkit`。**表会随版本变，用前先验证（见 fact-sources.md）。**
-- 想用 React/JSX：学 dsh-pocket 用 esbuild 包装产出上述形状（`format:'cjs', platform:'browser'`，`external: ['react', 'react/jsx-runtime', ...]`，把产物文本嵌进 `__ModuleLoader__.load` 包装，闭包里 `var React = require("react")`）。零依赖 UI（纯 DOM）则完全不需要打包器。
+- `require()` resolution: platform seed → materialized modules → graph rows → registered factories → **throw** (a package missing from the table and from `dsh.client.inject` fails loudly at runtime).
+- Platform seed table (extracted from the built frontend `dsh-web-frontend/dist/assets/index-*.js`, the seed function): `react`, `react/jsx-runtime`, `react-dom`, `react-dom/client`, `@deepseek-ai/cordis`, `@deepseek-ai/dsh-client-store`, `@deepseek-ai/dsh-client-ui-slots`, `@deepseek-ai/dsh-client-ui-primitives`, `@deepseek-ai/dsh-client-ui-dockkit`. **The table moves between versions — verify before relying on it (see fact-sources.md).**
+- Needing React/JSX: wrap esbuild output like dsh-pocket does (`format:'cjs', platform:'browser'`, `external: ['react', 'react/jsx-runtime', ...]`, embed the output text into the `__ModuleLoader__.load` wrapper, `var React = require("react")` inside the closure). A zero-dependency DOM-only UI needs no bundler at all.
 
-### 2.3 操作既有 UI：先槽位，后 DOM 增强
+### 2.3 Touching existing UI: slots first, DOM augmentation second
 
-1. **槽位优先**：读目标包 README 与 `lib/types/client/`，找 `slots.inject` / hole / 注册点。例：ui-workspace 自己就是 `ctx.slots.inject("sidebar.workspaces", ...)` 挂进侧栏的，并声明 `conversation.hero.workspace.directoryFlow` 这类 hole 给 picker 包填。
-2. **DOM 增强**（目标组件没留扩展点时，本插件的路径）：
-   - **行定位**：`MutationObserver`（`document.body`，`childList+subtree`，rAF 批处理）观察 `[role="treeitem"]`。
-   - **行 → 数据映射**：React 在 DOM 节点上挂 `__reactFiber$<随机>` key；`Object.keys(el)` 找到 fiber 后沿 `fiber.return` 上溯，读各层 `memoizedProps` 找行组件的数据 props（本例：`props.node` 且 `{id:string, title:string, updatedAt:number}`——`GroupNode` 无 `id`、搜索行是 `props.result`，天然区分）。上限 25 跳防呆。
-   - **渲染**：绝不往 React 管理的子节点插元素。在目标 span 上 `setAttribute("data-dsh-session-emoji", emoji)`，另注入一个 `<style data-plugin="<包名>">`，用 `span[data-dsh-session-emoji]::before { content: attr(data-dsh-session-emoji); ... }` 画出来。React 重渲染不清除未知属性；style tag 带 `data-plugin` 是 HMR 卸载清理的约定（client-hmr 移除插件拥有的 style tag）。
-   - **弹层**：`contextmenu` 捕获监听 + 纯 DOM 弹层挂 `document.body`（fixed 定位 + 高 z-index，天然逃出侧栏 overflow）；外点关闭用 capture 阶段 `pointerdown`。样式跟随 dsh 主题 token（`--dsw-alias-*`），带 fallback 值双主题可用。
+1. **Slots first**: read the target package's README and `lib/types/client/` for `slots.inject` / holes / registration points. Example: ui-workspace itself hangs off the sidebar via `ctx.slots.inject("sidebar.workspaces", ...)` and declares holes like `conversation.hero.workspace.directoryFlow` for picker packages.
+2. **DOM augmentation** (when the component exposes no extension point — this plugin's path):
+   - **Row location**: a `MutationObserver` on `document.body` (`childList+subtree`, rAF-batched) watching `[role="treeitem"]`.
+   - **Row → data mapping**: React attaches a `__reactFiber$<random>` key to DOM nodes; find the fiber via `Object.keys(el)`, walk `fiber.return` upward reading each level's `memoizedProps` for the row component's data props (here: `props.node` shaped `{id:string, title:string, updatedAt:number}` — `GroupNode` has no `id`, search rows are `props.result`, so they disambiguate naturally). Cap at ~25 hops.
+   - **Rendering**: never insert elements among React-managed children. `setAttribute("data-dsh-session-emoji", emoji)` on the target span, plus one injected `<style data-plugin="<package>">` with `span[data-dsh-session-emoji]::before { content: attr(data-dsh-session-emoji); ... }`. React re-renders don't clear unknown attributes; the `data-plugin` marker on style tags is the convention client-hmr teardown uses to remove a plugin's styles.
+   - **Popups**: a capture-phase `contextmenu` listener + plain-DOM popups appended to `document.body` (fixed positioning + high z-index escapes sidebar overflow); outside-close via capture-phase `pointerdown`. Follow dsh theme tokens (`--dsw-alias-*`) with fallbacks so both themes look right.
 
-**验证记录**：client.js 在 Node `vm` 里 stub `window.__ModuleLoader__` 跑 factory——确认注册 id 与 `exports.apply` 形状（无浏览器抓语法/注册错误）；真机验证走用户截图 + boot graph 检查（§5）。
+**Verification record**: client.js ran in a Node `vm` with a stubbed `window.__ModuleLoader__` — confirming the registration id and the `exports.apply` shape (catches syntax/registration errors without a browser); live verification came from the user's screenshot plus boot-graph checks (§5).
 
-## 3. 安装与生命周期
+## 3. Install and lifecycle
 
 ```sh
-dsh plugin --profile web add dsh-plugin-session-emoji -w     # npm 源
-# 或 git+https://github.com/<you>/<pkg>.git -w                # git 源（无构建脚本最省事）
-# 或 link:/abs/path -w                                        # 开发期软链，改源码直接生效
-dsh plugin --profile web update dsh-plugin-session-emoji -w  # 更新（跨大版本加 --latest）
-dsh plugin --profile web remove dsh-plugin-session-emoji -w  # 卸载（自动移出 bundles）
-dsh --profile web --dump-config                              # 不启动，预览组合树
+dsh plugin --profile web add dsh-plugin-session-emoji -w     # npm source
+# or git+https://github.com/<you>/<pkg>.git -w                # git source (build-script-free is the smooth case)
+# or link:/abs/path -w                                        # dev symlink; source edits apply directly
+dsh plugin --profile web update dsh-plugin-session-emoji -w  # update (add --latest across major versions)
+dsh plugin --profile web remove dsh-plugin-session-emoji -w  # uninstall (auto-removed from bundles)
+dsh --profile web --dump-config                              # preview the composed tree without booting
 ```
 
-机制：`dsh plugin` 转发 pnpm（cwd = profile 目录）→ 成功后 `reconcilePlugins` 把声明 `dsh.bundle.patch` 的依赖自动追加进 profile `package.json` 的 `dsh.profile.bundles`。bundle 的 patch 按列表顺序参与组合树（builtin bundles → bundles → profile patch → home patch → --patch）。
+Mechanism: `dsh plugin` forwards to pnpm (cwd = the profile directory) → on success reconcile scans each dependency's manifest and **auto-appends packages declaring `dsh.bundle.patch` to the profile's `dsh.profile.bundles`**. Bundle patches join the composed tree in listed order (builtin bundles → bundles → profile patch → home patch → --patch).
 
-- `-w` 必带（profile 是 pnpm workspace）。
-- git 依赖无构建脚本最省事；有 `prepare` 则需在 profile `pnpm-workspace.yaml` 加 `allowBuilds`。
-- **bundle 层增删不热重载，重启 `dsh web` 生效**。装/卸后稳态探针：路由 404 = 未生效。
+- `-w` is required (the profile is a pnpm workspace).
+- Git deps: build-script-free is the smooth case; with `prepare`, add `allowBuilds` to the profile's `pnpm-workspace.yaml`.
+- **Bundle add/remove does not hot-reload; restart `dsh web`.** Steady-state probe after install/remove: route 404 = not in effect.
 
-**验证记录**：本机实跑 remove(git)+add(npm) 全程，`dsh.profile.bundles` 自动增删；`reconcilePlugins` 行为与 dsh CLI 源码（`plugin-Ddi42qoW.js`）一致。
+**Verification record**: ran remove(git)+add(npm) live; `dsh.profile.bundles` updated automatically; behavior matches the dsh CLI source (`plugin-Ddi42qoW.js`).
 
-## 4. 宿主进程内验证（无浏览器）
+## 4. In-process verification (no browser)
 
-boot graph 随 index HTML 注入，认证后才可见。两种途径：
+The boot graph ships with the index HTML and is only visible authenticated. Two routes:
 
-1. 浏览器 DevTools：Sources 里搜自己的包名（`__DSH_BOOT__` script），Console 看加载失败与 `web boot: N entries did not activate` 提示（会列出 pending 的服务名）。
-2. 程序化（本机自有凭据，无权限提升）：`$DSH_HOME/.credentials.yaml` 里 `client-connection/browser-session` grant 的 secret 即 cookie 签名密钥。cookie 名 = `dsh-auth-` + base64url(sha256(authority))，值 = `v1.<base64url(payload)>.<base64url(HMAC-SHA256(secret, body))>`，payload = `{version:1, authority:"127.0.0.1:3080", issuedAt, expiresAt}`。带上即可 `GET /`（grep 包名确认在 boot graph + combo URL）与 `GET /api/<路由>`（看业务数据）。**这只是把文件读取权换成了等价的 HTTP 视角，不越过任何本机已有的权限边界。**
+1. Browser DevTools: search your package name in Sources (the `__DSH_BOOT__` script); the Console shows load failures and `web boot: N entries did not activate` hints (listing pending service names).
+2. Programmatic (own-machine credentials, no privilege escalation): the secret in `$DSH_HOME/.credentials.yaml`'s `client-connection/browser-session` grant signs the auth cookie. Cookie name = `dsh-auth-` + base64url(sha256(authority)); value = `v1.<base64url(payload)>.<base64url(HMAC-SHA256(secret, body))>`; payload = `{version:1, authority:"127.0.0.1:3080", issuedAt, expiresAt}`. With it you can `GET /` (grep your package name to confirm the boot graph + combo URL) and `GET /api/<route>` (see business data). **This only trades file-read access for an equivalent HTTP view — it crosses no permission boundary the file access didn't already grant.**
 
-## 5. 热更与刷新语义（最容易懵的部分）
+## 5. Hot-reload vs refresh semantics (the confusing part)
 
-| 场景 | 行为 |
+| Scenario | Behavior |
 |---|---|
-| 改 `lib/client.js` 保存 | `dsh-client-hmr` stat 轮询（默认 500ms）发现变化 → `rebuilt()` → 浏览器内卸旧挂新，**无需刷新页面**。仅 source map 变化不触发；reload 失败进 FAILED 不回滚；React 状态丢、数据层不丢 |
-| 改 bundle 的 `cordis.patch.yml` | patch 文件被 watch，热重载 |
-| 装/卸/更新包（`dsh.profile.bundles` 变化） | **不热重载，重启 `dsh web`**。pnpm 重组 node_modules 过程中的路由闪现（401→404）是瞬态，以稳态为准 |
-| boot graph 变了但没热更 | 浏览器**刷新页面**（graph 随 index 注入） |
+| Editing `lib/client.js` | `dsh-client-hmr` stat-polls (default 500ms), detects the change, `rebuilt()` → old fiber torn down, new one mounted **without a page reload**. Source-map-only writes don't trigger; failed reloads land FAILED with no rollback; React state resets, data layers survive |
+| Editing a bundle's `cordis.patch.yml` | Patch files are watched — hot reload |
+| Install/remove/update (changes to `dsh.profile.bundles`) | **Not hot-reloaded; restart `dsh web`**. A transient route blip (401→404) during pnpm's node_modules reorganization is transient — trust the steady state |
+| Boot graph changed without a hot swap | **Refresh the browser** (the graph ships with the index) |
 
-**验证记录**：热下线（删 patch 条目 → boot graph rev 变化 + 路由 404，全程未重启）与热替换（client.js 改写 → 浏览器内换新）均实测。
+**Verification record**: hot removal (deleting a patch row changed the boot graph rev and dropped the route to 404, with no restart) and hot swap (rewriting client.js swapped the plugin in the browser) were both observed live.
 
-## 6. 完整参考实现
+## 6. The full reference implementation
 
-https://github.com/cholf5/dsh-plugin-session-emoji —— 本文所有代码与验证的原始出处，可直接对照阅读。
+https://github.com/cholf5/dsh-plugin-session-emoji — the origin of every code sample and verification in this document; read them side by side.
