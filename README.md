@@ -4,6 +4,8 @@
 
 **DeepSeek Harness (dsh) 插件开发实战笔记 —— 一个 agent skill**
 
+> **English**: field-verified agent skill for building **dual-face dsh plugins** (Node host half + browser client half): `dsh.bundle.patch` one-command install, the `dsh.client` browser roster, `/api` exact routes, client HMR semantics, and a verify-against-installed-source methodology. The skill body is Chinese (AI consumers read it fine); this README is the human entry point.
+
 聚焦社区资料没覆盖的领域：**双面插件（Host Node 半 + 浏览器 Client 半）**、`dsh.bundle.patch` 一条命令安装、`dsh.client` 浏览器 roster、`/api` 精确路由、client HMR 热更循环，以及一套「**以本机安装的 dsh 源码为唯一事实来源**」的 API 验证方法论。
 
 [![license](https://img.shields.io/badge/license-MIT-2da44e)](LICENSE)
@@ -30,9 +32,8 @@
 
 ```
 dsh-plugin-dev-notes/
-├── SKILL.md                        # 操作手册（中文，canonical）：双面心智模型、bundle 机制、
-│                                   #   精确路由、client roster、验证清单、踩坑表
-├── SKILL.en.md                     # English edition of the operating manual
+├── SKILL.md                        # 操作手册（中文，单一 canonical 版本）：双面心智模型、
+│                                   #   bundle 机制、精确路由、client roster、验证清单、踩坑表
 ├── CHECKLIST.md                    # dsh 升级复核清单：15 分钟逐条 grep 复核流程 + 复核记录
 └── references/
     ├── web-ui-plugins.md           # 主参考：dual-face 全流程代码 + 每节实机验证记录
