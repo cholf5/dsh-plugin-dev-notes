@@ -42,6 +42,7 @@ npm view @deepseek-ai/dsh version
 | F9 | session row `[role=treeitem]`, fiber `props.node`, `SessionNode{id,title,updatedAt}` | `grep -c 'role: "treeitem"' dsh-client-ui-workspace/lib/client.js` + read `lib/types/client/tree.d.ts` |
 | F10 | platform module seed table | `grep -o "staticModules" dsh-web-frontend/dist/assets/index-*.js` then extract the seed function's full key list |
 | F11 | `defineTool` output mandatory, `required` per-property | `grep -o "required?: true" dsh-tools/lib/types/schema.d.ts` + `grep "Mandatory canonical output" dsh-tools/lib/types/index.d.ts` |
+| F12 | `dsh plugin` requires pnpm on PATH (exit 127 otherwise) | `grep -o "pnpm was not found\|pnpm not found on PATH" dsh/lib/plugin-*.js` |
 
 3. **Record the verdicts**: drifted facts → fix the corresponding lines in SKILL.md / references and update the source citations in `references/fact-sources.md`; no drift → just append a row to the log below.
 4. **Ship**: commit (`recheck: against dsh <new>`) → tag `v0.1.<n>` (incrementing recheck rounds) → push (including `--tags`).

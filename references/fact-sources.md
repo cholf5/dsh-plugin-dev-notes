@@ -48,6 +48,7 @@ The running profile (`~/.dsh/profiles/web/`) holds `dsh.profile.bundles` + `cord
 | Session row `[role=treeitem]`, fiber `props.node` | `dsh-client-ui-workspace/lib/client.js` `SessionNodeItem` + `lib/types/client/tree.d.ts` | ✅ `SessionNode{id,title,updatedAt}` unchanged |
 | Platform module seed table (nine keys) | `dsh-web-frontend/dist/assets/index-*.js` seed function | ✅ all nine keys unchanged |
 | tools: `defineTool` output mandatory, `required` per-property | `dsh-tools/lib/types/{index,schema}.d.ts` | ✅ |
+| `dsh plugin` shells out to pnpm — without it on PATH: exit 127, "pnpm was not found" | 0.1.5-rc.2: `dsh/lib/plugin-Ddi42qoW.js` `spawnSync("pnpm")` ENOENT branch; 0.1.6-alpha.2: `dsh/lib/plugin-DJ-rVHUS.js` `result.exitCode === 127` message | ✅ 0.1.5 verified live on this machine; 0.1.6 verified in source |
 
 ## 5. Citation discipline
 
