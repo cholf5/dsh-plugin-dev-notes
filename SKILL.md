@@ -9,7 +9,7 @@ whenToUse: 当任务涉及为 DeepSeek Harness (dsh) 编写、修改或调试插
 > 本 skill 是一份经过实机验证的开发笔记，聚焦一个更完整视角：**插件 = Host 半（Node/Cordis）+ Client 半（浏览器）**。
 > 相比社区已有的 tool 向资料（green-dalii/dsh-plugin-dev-skill 的 Cordis 心智模型、dsh-io/dsh-plugin-skill 的 tool API 快照），本笔记补上了 Web UI 插件这块它们没覆盖的领域，并把「一切以本机安装的官方源码为唯一事实来源」作为工作方法。
 >
-> 所有代码模板均在 dsh `0.1.5-rc.2` 上实机跑通（见 references/web-ui-plugins.md 的验证记录）。
+> **验证基线**：`@deepseek-ai/dsh@0.1.5-rc.2`（2026-09-18），并已对照 `0.1.6-alpha.2` 复核——复核记录与升级流程见 [CHECKLIST.md](CHECKLIST.md)。English edition: [SKILL.en.md](SKILL.en.md)。
 
 ## 0. 三层事实来源（先读这个）
 

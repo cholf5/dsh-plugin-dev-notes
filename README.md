@@ -30,12 +30,14 @@
 
 ```
 dsh-plugin-dev-notes/
-├── SKILL.md                        # 操作手册：双面心智模型、bundle 机制、精确路由、
-│                                   #   client roster、验证清单、踩坑表
+├── SKILL.md                        # 操作手册（中文，canonical）：双面心智模型、bundle 机制、
+│                                   #   精确路由、client roster、验证清单、踩坑表
+├── SKILL.en.md                     # English edition of the operating manual
+├── CHECKLIST.md                    # dsh 升级复核清单：15 分钟逐条 grep 复核流程 + 复核记录
 └── references/
     ├── web-ui-plugins.md           # 主参考：dual-face 全流程代码 + 每节实机验证记录
     └── fact-sources.md             # 方法论：三层事实来源 + 7 种源码验证手法
-                                    #   + 本会话裁决事实表（带文件级出处）
+                                    #   + 裁决事实表（带文件级出处 + 0.1.6-alpha.2 复核列）
 ```
 
 配套实机样例：[cholf5/dsh-plugin-session-emoji](https://github.com/cholf5/dsh-plugin-session-emoji) —— 笔记里所有代码的原始出处（侧栏会话 emoji 外挂，npm: [`dsh-plugin-session-emoji`](https://www.npmjs.com/package/dsh-plugin-session-emoji)）。

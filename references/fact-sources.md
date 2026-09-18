@@ -35,17 +35,19 @@ ls <root>/@deepseek-ai/ | grep dsh # 全家桶：dsh、dsh-base、dsh-web-app、
 
 ## 4. 本次会话裁决过的事实（含出处，供交叉核对）
 
-| 事实 | 出处（0.1.5-rc.2） |
-|---|---|
-| `dsh.bundle.patch` → `dsh plugin add` 自动挂进 `dsh.profile.bundles` | dsh CLI `lib/plugin-Ddi42qoW.js` `reconcilePlugins()` |
-| `- insert:` 行格式；patch 后层按行胜出、整 config 替换 | `dsh-web-app/cordis.patch.yml` 头注 + `dsh` README |
-| 精确路由按 path 键控、`/api` 围栏先于分发 | `dsh-client-connection/lib/index.js` `registerFetchRoute` / L767 `/api` 路由注册 |
-| `dsh.client` 字段校验：platform 必填、inject/external/immediately | `dsh-client-modules/lib/index.js` `parseDshClient` |
-| bundle = `window.__ModuleLoader__.load({id, factory})`，懒 CJS | `dsh-client-modules/lib/client.js` 头注 + 实际包产物 |
-| skill 名 pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$` | `dsh-skill/lib/index.js` L17 `SKILL_NAME` |
-| skill 根：`.dsh/skills`(100)/`.agents/skills`(200)/custom(300)/`~/.dsh/skills`(400)/`~/.agents/skills`(500)；frontmatter `disable-model-invocation`/`user-invocable`（拒绝 legacy 驼峰键） | `dsh-skill-filesystem/README.md` + `lib/index.js` `parseInvocationPolicy` |
-| HMR：stat 轮询 500ms、仅真实 revision 变化触发、map-only 不重载、FAILED 不回滚、`data-plugin` style tag 清理 | `dsh-client-hmr/README.md` |
-| 会话行结构 `[role=treeitem]`、fiber props `node` | `dsh-client-ui-workspace/lib/client.js` `SessionNodeItem` + `lib/types/client/tree.d.ts` |
+| 事实 | 出处（0.1.5-rc.2） | 复核（0.1.6-alpha.2, 2026-09-18, 见 CHECKLIST.md） |
+|---|---|---|
+| `dsh.bundle.patch` → `dsh plugin add` 自动挂进 `dsh.profile.bundles` | dsh CLI `lib/plugin-Ddi42qoW.js` `reconcilePlugins()` | ✅ 无漂移；逻辑移入 `@deepseek-ai/dsh-plugin-manager/lib/index.js` `reconcile()` |
+| `- insert:` 行格式；patch 后层按行胜出、整 config 替换 | `dsh-web-app/cordis.patch.yml` 头注 + `dsh` README | ✅ 头注原文仍在 |
+| 精确路由按 path 键控、`/api` 围栏先于分发 | `dsh-client-connection/lib/index.js` `registerFetchRoute` / L767 `/api` 路由注册 | ✅ `API_PATH="/api"`、`fetchRoutes.has` 仍在 |
+| `dsh.client` 字段校验：platform 必填、inject/external/immediately | `dsh-client-modules/lib/index.js` `parseDshClient` | ✅ |
+| bundle = `window.__ModuleLoader__.load({id, factory})`，懒 CJS | `dsh-client-modules/lib/client.js` 头注 + 实际包产物 | ✅ |
+| skill 名 pattern `^[a-z0-9]+(?:-[a-z0-9]+)*$` | `dsh-skill/lib/index.js` L17 `SKILL_NAME` | ✅ 原样 |
+| skill 根：`.dsh/skills`(100)/`.agents/skills`(200)/custom(300)/`~/.dsh/skills`(400)/`~/.agents/skills`(500)；frontmatter `disable-model-invocation`/`user-invocable`（拒绝 legacy 驼峰键） | `dsh-skill-filesystem/README.md` + `lib/index.js` `parseInvocationPolicy` | ✅ followSymlinks / nodeEntryKind / 键名全在 |
+| HMR：stat 轮询 500ms、仅真实 revision 变化触发、map-only 不重载、FAILED 不回滚、`data-plugin` style tag 清理 | `dsh-client-hmr/README.md` | ✅ pollIntervalMs 500 |
+| 会话行结构 `[role=treeitem]`、fiber props `node` | `dsh-client-ui-workspace/lib/client.js` `SessionNodeItem` + `lib/types/client/tree.d.ts` | ✅ `SessionNode{id,title,updatedAt}` 原样 |
+| 平台模块种子表（九键） | `dsh-web-frontend/dist/assets/index-*.js` `staticModules` 种子函数 | ✅ 九键原样 |
+| tool：`defineTool` output 必填、`required` per-property | `dsh-tools/lib/types/{index,schema}.d.ts` | ✅ |
 
 ## 5. 引用纪律
 
