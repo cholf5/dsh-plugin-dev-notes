@@ -114,8 +114,10 @@ Install and verify (prerequisites in §4.2):
 
 ```sh
 npx @deepseek-ai/dsh plugin --profile web add link:/abs/path/to/dsh-plugin-minimal -w
-# restart dsh web, refresh the browser, then:
-curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3080/api/minimal/ping   # 401 = route live
+# restart dsh web, refresh the browser, then mint a session cookie from the launch URL dsh web printed:
+curl -s -c /tmp/dsh-cookies.txt "http://127.0.0.1:3080/?token=<token>" -o /dev/null   # 303, cookie saved
+curl -s -b /tmp/dsh-cookies.txt http://127.0.0.1:3080/api/minimal/ping   # {"pong":…} = route live; 404 "not found" = not registered
+# (an unauthenticated curl gets 401 for EVERY /api path — the fence rejects before route matching — so 401 proves nothing about registration)
 # DevTools console shows: [minimal] hello from the browser half
 ```
 
@@ -220,10 +222,11 @@ npx @deepseek-ai/dsh plugin --profile web add <pkg> -w
 npx @deepseek-ai/dsh plugin --profile web add git+https://github.com/<you>/<pkg>.git -w
 ```
 
-Restart `dsh web`, then refresh the browser page. Verify the route is live:
+Restart `dsh web`, then refresh the browser page. Verify the route is live (with a cookie — an unauthenticated 401 is not a registration signal, it happens for every /api path):
 
 ```sh
-curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3080/api/<route>   # 401 = installed (auth fence), 404 = not
+curl -s -c /tmp/dsh-cookies.txt "http://127.0.0.1:3080/?token=<token-from-launch-url>" -o /dev/null   # mint session cookie (303)
+curl -s -b /tmp/dsh-cookies.txt http://127.0.0.1:3080/api/<route>   # expected body = registered; 404 "not found" = not
 ```
 
 <details>
@@ -290,7 +293,7 @@ export async function apply(ctx) {
 ```
 
 - Routes are keyed by path: registering the same path twice throws; register once and dispatch internally.
-- Browser side: plain `fetch('/api/my-plugin/data')` (same-origin; the cookie rides along; curl without a cookie gets 401 — that's your "route registered" probe).
+- Browser side: plain `fetch('/api/my-plugin/data')` (same-origin; the cookie rides along). An unauthenticated curl gets 401 for **every** `/api` path — the fence rejects *before* route matching — so 401 means "fence up", not "route registered"; the registration probe is the cookie probe in §8 (registered → your body, unregistered → 404 "not found").
 - Reach for Typert (`@deepseek-ai/dsh-typert-protocol`: `TypertRemoteService` + `Remote` decorators + generated `TYPERT`/`TYPERT_REMOTE` artifacts, mounted client-side via `ctx.remote.$mount()`) only for RPC/streaming/generated endpoints; exact routes cover small plugins.
 - Persistence: write `$DSH_HOME/storages/<your-name>.json` (the same user-data area the workspace controller uses). Serialize concurrent writes with a promise chain + atomic temp/rename.
 
@@ -343,7 +346,7 @@ HMR caveats: the swap resets the plugin's React state (connection/session data l
 - [ ] **The decomposition assessment (§2) was presented to the user before coding** — package/half/row boundaries with named axes of variation, and the deliberate non-splits
 - [ ] Host half: `node --check` / actually import it; bundle: run the factory in a `vm` with a stubbed `window.__ModuleLoader__` (catches syntax/registration errors without a browser)
 - [ ] `dsh --profile web --dump-config` previews the composed tree (no boot needed) — confirm your row
-- [ ] After install, probe: `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3080/api/<your route>` → 401 = registered (the fence rejects unauthenticated requests), 404 = not installed; 200 requires a browser cookie
+- [ ] After install, probe with a cookie: mint one (`curl -s -c /tmp/dsh-cookies.txt "http://127.0.0.1:3080/?token=<token-from-launch-url>" -o /dev/null`) then `curl -s -b /tmp/dsh-cookies.txt http://127.0.0.1:3080/api/<your route>` → expected body = registered, 404 "not found" = not; an unauthenticated curl returns 401 for any /api path (fence before routing — fence-alive signal only)
 - [ ] Browser: refresh the page (the boot graph ships with the index; after an HMR swap you don't refresh); check DevTools console for your `[plugin-name]` warnings and failed-entry hints
 - [ ] Uninstall path: `dsh plugin --profile web remove <pkg> -w` → restart → probe 404, no UI residue
 - [ ] **README install section covers the two end-user prerequisites (§4.2)**: dsh reachability (global vs npx), pnpm + its install command, the one-command install in both forms, the no-pnpm manual fallback, and the §4.4 troubleshooting rows
@@ -398,6 +401,7 @@ What's left for manual verification (§8 checklist): composed-tree shape, the li
 | One package, one row, many unrelated features | deployers can only toggle whole rows — split features into rows (or packages) so composition stays possible (§2) |
 | Model-facing tool never appears in web sessions | the web surface **disables agent-plane rows** (tool-bash, tool-fs, …) and lets each session mount a preset instead (verified in `dsh-web-app/cordis.patch.yml`, F13) — model-facing rows belong in an agent preset (`~/.agent-presets` is user-authored); verify with `--dump-config` + a live session |
 | A `/api` route that returns everything | the fence authenticates, it does not scope data — and your route's exposure equals the GUI's (dsh-pocket tunnels included); see the security boundary in §5 |
+| Unauthenticated 401 taken as proof of route registration | the fence rejects **before route matching** — every /api path 401s without a cookie (control-tested on 0.1.5-rc.2); registration proof = cookie probe + expected body vs 404 "not found" (§8) |
 | Hand-editing the profile's cordis.patch.yml instead of shipping a bundle | Works, but not the convention; `dsh.bundle.patch` is the one-command path |
 | Registering the same exact route path twice | `fetchRoutes` is path-keyed; the second registration throws — fold methods into one registration |
 | `require("react")` in a bundle | react is in the platform table; **anything not in the table must be listed in `dsh.client.inject` (external)** or it throws "missed the module table" |

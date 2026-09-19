@@ -21,7 +21,7 @@ npm root -g                       # global install: node_modules/@deepseek-ai/
 ls <root>/@deepseek-ai/ | grep dsh # the whole family: dsh, dsh-base, dsh-web-app, dsh-client-*, dsh-tools, dsh-skill...
 ```
 
-The running profile (`~/.dsh/profiles/web/`) holds `dsh.profile.bundles` + `cordis.patch.yml` — the manifest of the **currently live composition**; `~/.dsh/storages/` is the host-side user-data area. Probe: `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3080/api/<route>` → 401 = registered, 404 = absent.
+The running profile (`~/.dsh/profiles/web/`) holds `dsh.profile.bundles` + `cordis.patch.yml` — the manifest of the **currently live composition**; `~/.dsh/storages/` is the host-side user-data area. Probe (registration): mint a session cookie first — `curl -s -c /tmp/dsh-cookies.txt "http://127.0.0.1:3080/?token=<token-from-launch-url>" -o /dev/null` — then `curl -s -b /tmp/dsh-cookies.txt http://127.0.0.1:3080/api/<route>` → handler response = registered, `404 "not found"` = absent. (Unauthenticated curl → 401 for every /api path: the fence rejects before route matching.)
 
 ## 3. Verification techniques (ranked by cost-effectiveness)
 

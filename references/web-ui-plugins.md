@@ -71,7 +71,7 @@ Host-side persistence: `$DSH_HOME/storages/<name>.json` (the same user-data area
 
 Registration returns a disposer (an internal `owner.effect`), so the route deregisters automatically on plugin unload/reload — no manual cleanup.
 
-**Verification record**: after install, `curl http://127.0.0.1:3080/api/session-emoji` without a cookie → `401 unauthorized` (fence live, route registered); 404 = not installed. With a valid cookie, GET returned the full seeded map.
+**Verification record**: after install, `curl http://127.0.0.1:3080/api/session-emoji` without a cookie → `401 unauthorized` (fence live). With a valid cookie, GET returned the full seeded map — that, not the 401, is the registration proof; with a cookie, an unregistered /api path returns `404 not found`. **Corrected (0.1.5-rc.2, control-tested)**: the fence rejects *before route matching*, so the unauthenticated 401 happens for **every** /api path, registered or not — the earlier "401 = registered, 404 = not installed" reading was wrong (and contradicted the fence-dispatches-first fact, F3); only the cookie probe distinguishes them.
 
 ## 2. Client half: joining the browser roster
 
@@ -149,7 +149,7 @@ Mechanism: `dsh plugin` forwards to pnpm (cwd = the profile directory) → on su
 The boot graph ships with the index HTML and is only visible authenticated. Two routes:
 
 1. Browser DevTools: search your package name in Sources (the `__DSH_BOOT__` script); the Console shows load failures and `web boot: N entries did not activate` hints (listing pending service names).
-2. Programmatic (own-machine credentials, no privilege escalation): the secret in `$DSH_HOME/.credentials.yaml`'s `client-connection/browser-session` grant signs the auth cookie. Cookie name = `dsh-auth-` + base64url(sha256(authority)); value = `v1.<base64url(payload)>.<base64url(HMAC-SHA256(secret, body))>`; payload = `{version:1, authority:"127.0.0.1:3080", issuedAt, expiresAt}`. With it you can `GET /` (grep your package name to confirm the boot graph + combo URL) and `GET /api/<route>` (see business data). **This only trades file-read access for an equivalent HTTP view — it crosses no permission boundary the file access didn't already grant.**
+2. Programmatic (own-machine credentials, no privilege escalation): the secret in `$DSH_HOME/.credentials.yaml`'s `client-connection/browser-session` grant signs the auth cookie (HMAC key = the secret's **raw decoded bytes**, not the base64url string — `canonicalSecret` decodes first; missing this makes every request 401). Cookie name = `dsh-auth-` + base64url(sha256(authority)); value = `v1.<base64url(payload)>.<base64url(HMAC-SHA256(secret, body))>`; payload = `{version:1, authority:"127.0.0.1:3080", issuedAt, expiresAt}`. With it you can `GET /` (grep your package name to confirm the boot graph + combo URL) and `GET /api/<route>` (see business data). **This only trades file-read access for an equivalent HTTP view — it crosses no permission boundary the file access didn't already grant.**
 
 ## 5. Hot-reload vs refresh semantics (the confusing part)
 
@@ -157,10 +157,10 @@ The boot graph ships with the index HTML and is only visible authenticated. Two 
 |---|---|
 | Editing `lib/client.js` | `dsh-client-hmr` stat-polls (default 500ms), detects the change, `rebuilt()` → old fiber torn down, new one mounted **without a page reload**. Source-map-only writes don't trigger; failed reloads land FAILED with no rollback; React state resets, data layers survive |
 | Editing a bundle's `cordis.patch.yml` | Patch files are watched — hot reload |
-| Install/remove/update (changes to `dsh.profile.bundles`) | **Not hot-reloaded; restart `dsh web`**. A transient route blip (401→404) during pnpm's node_modules reorganization is transient — trust the steady state |
+| Install/remove/update (changes to `dsh.profile.bundles`) | **Not hot-reloaded; restart `dsh web`**. A transient blip where even unauthenticated probes fall to 404 means the /api channel itself was briefly unmounted during pnpm's node_modules reorganization — it is transient; trust the steady state |
 | Boot graph changed without a hot swap | **Refresh the browser** (the graph ships with the index) |
 
-**Verification record**: hot removal (deleting a patch row changed the boot graph rev and dropped the route to 404, with no restart) and hot swap (rewriting client.js swapped the plugin in the browser) were both observed live.
+**Verification record**: hot removal (deleting a patch row changed the boot graph rev and dropped the route to 404 as seen from the cookie-authenticated browser side, with no restart — an unauthenticated curl cannot show this, it 401s every /api path; see §1's corrected record) and hot swap (rewriting client.js swapped the plugin in the browser) were both observed live.
 
 ## 6. The full reference implementation
 
