@@ -81,6 +81,8 @@ DSH follows directory symlinks (the skill-filesystem stats through symlinks and 
 
 All facts were verified on `@deepseek-ai/dsh@0.1.5-rc.2` and re-verified against `0.1.6-alpha.2`. dsh moves fast through 0.x rcs — **before relying on an API claim, re-verify it against your local source using `references/fact-sources.md`**. The methodology outlives any individual fact; the local source never lies.
 
+**Maintenance is automated**: a scheduled workflow ([dsh-release-watcher](./.github/workflows/dsh-release-watcher.yml)) compares npm's `latest` against the fact-table baseline ([META/dsh-baseline.txt](./META/dsh-baseline.txt)) and opens a tracking issue when dsh releases. The 15-minute recheck procedure in [CHECKLIST.md](./CHECKLIST.md) is self-contained — any agent (or human) can execute it from the issue alone, no session history required.
+
 ## 🙏 Credits
 
 - [green-dalii/dsh-plugin-dev-skill](https://github.com/green-dalii/dsh-plugin-dev-skill) (MIT) — the first systematic reference

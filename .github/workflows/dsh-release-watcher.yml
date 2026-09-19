@@ -1,0 +1,72 @@
+name: dsh release watcher
+
+# Checks npm for a new @deepseek-ai/dsh release against the fact-table
+# baseline (META/dsh-baseline.txt). On a new release it opens/updates one
+# tracking issue pointing at CHECKLIST.md; when a recheck lands (baseline
+# file updated) the next run auto-closes the issue.
+
+on:
+  schedule:
+    - cron: "23 3 * * 1" # weekly, Monday 03:23 UTC
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare npm latest with the baseline
+        id: check
+        run: |
+          LATEST=$(npm view @deepseek-ai/dsh version)
+          BASELINE=$(tr -d '[:space:]' < META/dsh-baseline.txt)
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "baseline=$BASELINE" >> "$GITHUB_OUTPUT"
+          if [ "$LATEST" = "$BASELINE" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or update the recheck issue
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.check.outputs.latest }}
+          BASELINE: ${{ steps.check.outputs.baseline }}
+        run: |
+          TITLE="dsh $LATEST released — run the CHECKLIST recheck (baseline $BASELINE)"
+          BODY=$(cat <<EOF
+          npm \`latest\` is now **$LATEST**; the fact-table baseline is **$BASELINE**.
+
+          Run the 15-minute recheck per [CHECKLIST.md](./CHECKLIST.md):
+
+          1. \`npm pack\` the new version's packages into /tmp (no local install needed)
+          2. Verdict F1–F13 fact by fact with the listed greps
+          3. Fix any drifted lines in SKILL.md / references and update citations
+          4. Commit \`recheck: against dsh $LATEST\`, set \`META/dsh-baseline.txt\` to \`$LATEST\`, tag
+
+          The next scheduled run closes this issue once the baseline catches up.
+          EOF
+          )
+          EXISTING=$(gh issue list --search "run the CHECKLIST recheck in:title" --state open --json number --jq '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "Still outstanding: npm \`latest\` is \`$LATEST\`."
+          else
+            gh issue create --title "$TITLE" --body "$BODY"
+          fi
+
+      - name: Auto-close when the baseline catches up
+        if: steps.check.outputs.changed == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXISTING=$(gh issue list --search "run the CHECKLIST recheck in:title" --state open --json number --jq '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --comment "Baseline now matches npm latest — nothing to recheck."
+          fi

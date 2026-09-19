@@ -46,8 +46,10 @@ npm view @deepseek-ai/dsh version
 | F13 | web surface disables agent-plane rows; sessions mount presets | `grep -o "lets each session mount a preset instead" dsh-web-app/cordis.patch.yml` + `grep -A2 "id: tool-bash" dsh-web-app/cordis.patch.yml` |
 
 3. **Record the verdicts**: drifted facts → fix the corresponding lines in SKILL.md / references and update the source citations in `references/fact-sources.md`; no drift → just append a row to the log below.
-4. **Ship**: commit (`recheck: against dsh <new>`) → tag `v0.1.<n>` (incrementing recheck rounds) → push (including `--tags`).
+4. **Ship**: commit (`recheck: against dsh <new>`) → set `META/dsh-baseline.txt` to `<new>` (the scheduled watcher compares against this file and auto-closes its tracking issue) → tag (next version) → push (including `--tags`).
 5. **Clean up**: `rm -rf /tmp/dsh-recheck`.
+
+> The release watcher (`.github/workflows/dsh-release-watcher.yml`) runs weekly and on demand: npm `latest` ≠ baseline file → it opens/updates one tracking issue with this procedure; baseline catches up → it closes the issue. Nobody has to remember to look.
 
 ## Recheck log
 
