@@ -44,6 +44,81 @@ The dsh web GUI itself is assembled from "dual-face" plugins (ui-workspace, ui-s
 - The Client half is not a normal module: the whole file is `window.__ModuleLoader__.load({ id: "<package name>", factory: (require) => { ...; return module.exports; } })`. Official packages produce this shape with tsdown/esbuild; hand-write or wrap with esbuild (dsh-pocket wraps, see `references/web-ui-plugins.md` §6).
 - Don't pull React if you don't need it: a self-contained bundle (zero imports) is the lowest-friction option. The platform module table currently holds react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis, dsh-client-store, dsh-client-ui-slots, dsh-client-ui-primitives, dsh-client-ui-dockkit (extracted from the built frontend; may change between versions — verify first, see `references/fact-sources.md`).
 
+### The five-minute skeleton
+
+A complete, runnable dual-face plugin. Both halves are independent — ship only one if that's all you need.
+
+```
+dsh-plugin-minimal/
+├── package.json
+├── cordis.patch.yml
+└── lib/
+    ├── index.js     # Host half
+    └── client.js    # Client half
+```
+
+```json
+{
+  "name": "dsh-plugin-minimal",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": { ".": "./lib/index.js", "./client": "./lib/client.js" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web" }
+  }
+}
+```
+
+```yaml
+# cordis.patch.yml
+- insert:
+    - id: minimal
+      name: dsh-plugin-minimal
+```
+
+```js
+// lib/index.js — Host half: one exact route on the authenticated channel
+export const inject = ["connection"];
+
+export async function apply(ctx) {
+  ctx.connection.fetch.register({
+    path: "/api/minimal/ping",
+    methods: ["GET"],
+    requestBody: "buffered",
+    fetch: async () => Response.json({ pong: Date.now() }),
+  });
+}
+```
+
+```js
+// lib/client.js — Client half: the registration form; side effects run at materialization
+window.__ModuleLoader__.load({
+  id: "dsh-plugin-minimal",
+  factory: (require) => {
+    var module = { exports: {} };
+    var exports = module.exports;
+    async function apply(ctx) {
+      console.log("[minimal] hello from the browser half");
+      return async () => {};
+    }
+    exports.inject = [];
+    exports.apply = apply;
+    return module.exports;
+  }
+});
+```
+
+Install and verify (prerequisites in §4.2):
+
+```sh
+npx @deepseek-ai/dsh plugin --profile web add link:/abs/path/to/dsh-plugin-minimal -w
+# restart dsh web, refresh the browser, then:
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3080/api/minimal/ping   # 401 = route live
+# DevTools console shows: [minimal] hello from the browser half
+```
+
 ## 2. Scope before code: the decomposition assessment
 
 dsh's composition machinery — bundles as layers, patch rows as toggleable units, slots/holes and services as seams — rewards plugins that are **shaped for combination**. The classic failure is the mega-plugin: one package, one row, five unrelated features, so nobody after you can toggle, replace, or recombine any part. Before writing code, run the assessment below and **present it to the user** — the assessment is a deliverable, not a silent choice.
@@ -219,6 +294,11 @@ export async function apply(ctx) {
 - Reach for Typert (`@deepseek-ai/dsh-typert-protocol`: `TypertRemoteService` + `Remote` decorators + generated `TYPERT`/`TYPERT_REMOTE` artifacts, mounted client-side via `ctx.remote.$mount()`) only for RPC/streaming/generated endpoints; exact routes cover small plugins.
 - Persistence: write `$DSH_HOME/storages/<your-name>.json` (the same user-data area the workspace controller uses). Serialize concurrent writes with a promise chain + atomic temp/rename.
 
+**Security boundary — what the fence does and does not do.** The fence authenticates the browser session and checks Host/Origin *before* your handler; it does **not** scope data inside your route. Two consequences to design for:
+
+- **Every authenticated browser session can read and mutate everything your routes expose.** dsh web has no per-user identity model — one deployment, one shared cookie identity. Return the minimum your UI needs; avoid whole-store GETs for sensitive data; make destructive mutations explicit and deliberate.
+- **Your route's exposure equals the GUI's exposure.** If the deployment reaches beyond loopback — LAN, or a [dsh-pocket](https://github.com/shaobeichen/dsh-pocket) public tunnel behind its password — your routes sit behind that same password. dsh-pocket is a common add-on; assume it can appear, and don't build a route you wouldn't expose to a phone on a cellular network.
+
 ## 6. Client half: joining the browser roster
 
 The host scans every active row carrying `dsh.client` into `window.__DSH_BOOT__` (the boot graph), injected into the page via the index HTML; the browser lazy-loads bundles along it.
@@ -268,11 +348,56 @@ HMR caveats: the swap resets the plugin's React state (connection/session data l
 - [ ] Uninstall path: `dsh plugin --profile web remove <pkg> -w` → restart → probe 404, no UI residue
 - [ ] **README install section covers the two end-user prerequisites (§4.2)**: dsh reachability (global vs npx), pnpm + its install command, the one-command install in both forms, the no-pnpm manual fallback, and the §4.4 troubleshooting rows
 
+### Automate what can be automated
+
+Node 22 ships `node --test` — zero test dependencies (dsh-pocket ships 109 tests this way). Three patterns cover most of a dual-face plugin:
+
+```js
+// test/host.test.mjs — route handlers, with $DSH_HOME pointed at a temp dir
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { apply } from "../lib/index.js";
+
+test("GET /api/... returns the map", async () => {
+  process.env.DSH_HOME = await fs.mkdtemp(join(tmpdir(), "dsh-test-")); // store files land there
+  let registered;
+  await apply({ connection: { fetch: { register: (r) => { registered = r; } } } });
+  const res = await registered.fetch(new Request("https://x/api/my-plugin/data", { method: "GET" }));
+  assert.equal(res.status, 200);
+});
+```
+
+The trick: my host half resolves the store path via `resolveDshHome()` **at call time**, so pointing `$DSH_HOME` at a temp directory in the test isolates the filesystem — a design-for-testability habit worth copying (resolve env/config inside handlers, not at module top level).
+
+```js
+// test/client.test.mjs — the bundle factory, no browser needed
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+
+test("bundle registers under the package id with an apply export", () => {
+  let registered;
+  const sandbox = {
+    window: { __ModuleLoader__: { load: (def) => { registered = def; } } },
+    require: () => { throw new Error("unexpected require"); },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(readFileSync("lib/client.js", "utf8"), sandbox);
+  assert.equal(registered.id, "dsh-plugin-minimal");
+  assert.equal(typeof registered.factory(sandbox.require).apply, "function");
+});
+```
+
+What's left for manual verification (§8 checklist): composed-tree shape, the live fence probe, actual DOM behavior — the parts that need a running dsh and a browser.
+
 ## 9. Pitfalls (all field-tested)
 
 | Pitfall | Reality |
 |---|---|
 | One package, one row, many unrelated features | deployers can only toggle whole rows — split features into rows (or packages) so composition stays possible (§2) |
+| Model-facing tool never appears in web sessions | the web surface **disables agent-plane rows** (tool-bash, tool-fs, …) and lets each session mount a preset instead (verified in `dsh-web-app/cordis.patch.yml`, F13) — model-facing rows belong in an agent preset (`~/.agent-presets` is user-authored); verify with `--dump-config` + a live session |
+| A `/api` route that returns everything | the fence authenticates, it does not scope data — and your route's exposure equals the GUI's (dsh-pocket tunnels included); see the security boundary in §5 |
 | Hand-editing the profile's cordis.patch.yml instead of shipping a bundle | Works, but not the convention; `dsh.bundle.patch` is the one-command path |
 | Registering the same exact route path twice | `fetchRoutes` is path-keyed; the second registration throws — fold methods into one registration |
 | `require("react")` in a bundle | react is in the platform table; **anything not in the table must be listed in `dsh.client.inject` (external)** or it throws "missed the module table" |

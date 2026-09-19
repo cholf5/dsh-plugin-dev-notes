@@ -33,7 +33,34 @@ The running profile (`~/.dsh/profiles/web/`) holds `dsh.profile.bundles` + `cord
 6. **The running process**: `--dump-config` previews the composed tree; the DevTools console shows `web boot: N entries did not activate` (listing pending service names); `/plugins/events` SSE broadcasts graph/rebuilt frames.
 7. **Verify a whole chain hands-on**: `node --check` / import the host half; run the client factory in a `vm` with a stubbed `window.__ModuleLoader__`; `curl` the route; finally install for real (`dsh plugin add link:... -w`).
 
-## 4. The fact table (with sources, for cross-checking)
+## 4. Seam discovery: what can I inject, listen to, or plug into?
+
+The most common "I don't know what's available" blocker, solved with four greps:
+
+1. **Injectable host services** — every service name appears as a Context augmentation or a `Service` subclass name:
+   ```sh
+   grep -rn "static inject" <pkg>/lib            # what each package consumes
+   grep -rn "declare module" <pkg>/lib/types     # Context/Events augmentations: the ctx.<name> it provides
+   ```
+   Cross-check with the composed rows (`dsh --profile web --dump-config`): every row is a plugin whose README lists the services it provides and consumes.
+2. **Events** — typed events live in `declare module` → `interface Events` blocks; the dispatch mode (emit/parallel/serial/waterfall) is in the JSDoc (`@mode`):
+   ```sh
+   grep -rn "interface Events" <pkg>/lib/types
+   grep -rn 'ctx.on("' <pkg>/lib                 # literal event names at call sites
+   ```
+3. **Browser seams (slots/holes)** — grep the client halves of installed packages:
+   ```sh
+   grep -rn "slots.inject(\|slots.register(\|provideRoot" <pkg>/lib/client.js
+   ```
+   Seats appear as the first argument (`"sidebar.workspaces"`, `"conversation.hero.workspace"`, …); holes are declared inside the registration payloads.
+4. **Remote endpoints (Typert)** — a package's `lib/typert.host.js` lists every invocation with its wire id (`<pkg>#<service>/<method>`):
+   ```sh
+   grep -n "invocations" <pkg>/lib/typert.host.js
+   ```
+
+The runtime cross-check: the loader status projection names each entry's pending services, and `--dump-config` names every row — between those two and the greps above, the seam map of any deployment is recoverable without documentation.
+
+## 5. The fact table (with sources, for cross-checking)
 
 | Fact | Source (0.1.5-rc.2) | Recheck (0.1.6-alpha.2, 2026-09-18, see CHECKLIST.md) |
 |---|---|---|
@@ -49,8 +76,9 @@ The running profile (`~/.dsh/profiles/web/`) holds `dsh.profile.bundles` + `cord
 | Platform module seed table (nine keys) | `dsh-web-frontend/dist/assets/index-*.js` seed function | ✅ all nine keys unchanged |
 | tools: `defineTool` output mandatory, `required` per-property | `dsh-tools/lib/types/{index,schema}.d.ts` | ✅ |
 | `dsh plugin` shells out to pnpm — without it on PATH: exit 127, "pnpm was not found" | 0.1.5-rc.2: `dsh/lib/plugin-Ddi42qoW.js` `spawnSync("pnpm")` ENOENT branch; 0.1.6-alpha.2: `dsh/lib/plugin-DJ-rVHUS.js` `result.exitCode === 127` message | ✅ 0.1.5 verified live on this machine; 0.1.6 verified in source |
+| The web surface disables agent-plane rows and mounts per-session presets | `dsh-web-app/cordis.patch.yml`: "the agent plane moves behind agent presets … lets each session mount a preset instead"; tool rows arrive `disabled: true` | ✅ both phrases and `tool-bash disabled: true` present in 0.1.6-alpha.2 |
 
-## 5. Citation discipline
+## 6. Citation discipline
 
 - Every API fact that lands in code or docs is marked either "verified" (with a source) or "unverified — confirm before use".
 - Leave a "verified against dsh <version>" comment in your plugin — it is the first thing to check when an upgrade misbehaves.
