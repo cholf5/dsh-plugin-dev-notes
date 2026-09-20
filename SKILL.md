@@ -1,7 +1,7 @@
 ---
 name: dsh-plugin-dev-notes
-description: Field notes for developing DeepSeek Harness (dsh) plugins, focused on dual-face plugins (Node host half + browser client half): requirement scoping and decomposition, dsh.bundle.patch one-command install, the dsh.client browser roster, /api exact routes, client HMR semantics, npm publishing, and a verify-against-installed-source methodology.
-whenToUse: Load when building, modifying, or debugging DeepSeek Harness (dsh) plugins — especially when scoping/decomposing a plugin requirement, building web UI (browser-side) or dual-face plugins, bundle packaging/install, npm publishing, @deepseek-ai/dsh-* API usage — or when any plugin API claim needs verification against the locally installed dsh source.
+description: "Field notes for developing DeepSeek Harness (dsh) plugins, focused on dual-face plugins (Node host half + browser client half): requirement scoping and decomposition, dsh.bundle.patch one-command install, the dsh.client browser roster, /api exact routes, client HMR semantics, npm publishing, and a verify-against-installed-source methodology."
+whenToUse: "Load when building, modifying, or debugging DeepSeek Harness (dsh) plugins — especially when scoping/decomposing a plugin requirement, building web UI (browser-side) or dual-face plugins, bundle packaging/install, npm publishing, @deepseek-ai/dsh-* API usage — or when any plugin API claim needs verification against the locally installed dsh source."
 ---
 
 # dsh Plugin Development Field Notes (dual-face perspective)
