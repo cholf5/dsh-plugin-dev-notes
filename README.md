@@ -50,7 +50,39 @@ Companion worked example: [cholf5/dsh-plugin-session-emoji](https://github.com/c
 
 The skill is standard Agent Skills format (`SKILL.md` + YAML frontmatter); any host that speaks the format can load it.
 
-**DSH** (project root rank 100 / user root rank 400):
+### One command (recommended): `npx skills`
+
+[skills](https://github.com/vercel-labs/skills) is the package manager for the open Agent Skills ecosystem — it installs straight from this git repo, no registration:
+
+```sh
+# dsh, user-level — available in every project
+npx skills add cholf5/dsh-plugin-dev-notes -g -a zed
+
+# dsh, project-level — only in the repo you run it from (run at the repo root)
+npx skills add cholf5/dsh-plugin-dev-notes -a zed
+```
+
+Why `-a zed`: dsh is not yet in the CLI's agent list, but it reads the shared Agent Skills directories — `~/.agents/skills/` (user) and `<git-root>/.agents/skills/` (project). The `zed` alias (same as `cline`, `warp`, `kimi-code-cli`, `loaf`, `sarvam-code`, `dexto`) installs exactly there:
+
+| Scope | Flags | Lands in | dsh discovery root |
+|---|---|---|---|
+| user-level (every project) | `-g -a zed` | `~/.agents/skills/` | ✅ user-agents (rank 500) |
+| project-level (this repo only) | `-a zed` | `./.agents/skills/` | ✅ project-agents (rank 200) — run at the repo root; the CLI does not walk up to the git root |
+
+⚠️ Traps: `-g -a universal` lands in `~/.config/agents/skills/` and `-a claude-code` lands in `.claude/skills/` — dsh scans neither (the latter is fine for Claude Code itself).
+
+Verify and update:
+
+```sh
+npx skills ls -g                            # confirm installed
+npx skills update dsh-plugin-dev-notes -g   # pull the latest version
+```
+
+dsh watches its skill roots live — new sessions (and even the running session's catalog) pick the skill up without a restart.
+
+**Other agents**: run `npx skills add cholf5/dsh-plugin-dev-notes` without `-a` and the CLI auto-detects installed agents (Claude Code, Codex, Cursor, …); or target one explicitly, e.g. `-g -a claude-code` → `~/.claude/skills/`.
+
+### Manual fallback (no npx)
 
 ```sh
 # user-level: available in every project
@@ -65,7 +97,7 @@ ln -s /path/to/dsh-plugin-dev-notes ~/.dsh/skills/dsh-plugin-dev-notes
 
 DSH follows directory symlinks (the skill-filesystem stats through symlinks and treats them as directory bundles) and watches skill roots live — installs and edits need no restart.
 
-**Other agents** (same content):
+For other agents without the CLI, copy or symlink the repo into their skills dir:
 
 | Agent | Path |
 |---|---|

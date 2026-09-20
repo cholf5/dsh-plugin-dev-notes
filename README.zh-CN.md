@@ -49,7 +49,39 @@ dsh-plugin-dev-notes/
 
 标准 Agent Skills 格式（`SKILL.md` + YAML frontmatter），任何支持该格式的 agent 都能用。
 
-**DSH**（项目级 rank 100 / 用户级 rank 400）：
+### 一条命令（推荐）：`npx skills`
+
+[skills](https://github.com/vercel-labs/skills) 是开放 Agent Skills 生态的包管理 CLI——直接从本 git 仓库安装，无需注册：
+
+```sh
+# dsh 用户级——所有项目可用
+npx skills add cholf5/dsh-plugin-dev-notes -g -a zed
+
+# dsh 项目级——只在运行它的仓库生效（在仓库根目录执行）
+npx skills add cholf5/dsh-plugin-dev-notes -a zed
+```
+
+为什么是 `-a zed`：dsh 尚未进入该 CLI 的 agent 列表，但它读取共享的 Agent Skills 目录——`~/.agents/skills/`（用户级）与 `<git根>/.agents/skills/`（项目级）；而 `zed` 别名（同 `cline`、`warp`、`kimi-code-cli`、`loaf`、`sarvam-code`、`dexto`）恰好就装到这两个位置：
+
+| 作用域 | 参数 | 落盘位置 | dsh 发现根 |
+|---|---|---|---|
+| 用户级（所有项目） | `-g -a zed` | `~/.agents/skills/` | ✅ user-agents（rank 500） |
+| 项目级（仅该仓库） | `-a zed` | `./.agents/skills/` | ✅ project-agents（rank 200）——须在仓库根目录执行，CLI 不会向上找 git 根 |
+
+⚠️ 两个陷阱：`-g -a universal` 装到 `~/.config/agents/skills/`、`-a claude-code` 装到 `.claude/skills/`——dsh 都不扫描（后者对 Claude Code 本身没问题）。
+
+验证与更新：
+
+```sh
+npx skills ls -g                            # 确认已安装
+npx skills update dsh-plugin-dev-notes -g   # 更新到最新
+```
+
+dsh 实时 watch skill 目录——新会话（乃至当前会话的技能目录）无需重启即可看到。
+
+**其它 agent**：`npx skills add cholf5/dsh-plugin-dev-notes` 不带 `-a` 会自动探测已装的 agent（Claude Code、Codex、Cursor……）；也可显式指定，如 `-g -a claude-code` → `~/.claude/skills/`。
+
+### 手动安装（不用 npx）
 
 ```sh
 # 用户级：所有项目可用
@@ -64,7 +96,7 @@ ln -s /path/to/dsh-plugin-dev-notes ~/.dsh/skills/dsh-plugin-dev-notes
 
 DSH 对目录软链完全兼容（skill-filesystem 会 stat 跟随 symlink 识别为 directory bundle），且 skill 目录被实时 watch——安装、修改无需重启。
 
-**其它 agent**（同一份内容）：
+没有 CLI 的其它 agent，把仓库拷贝/软链进它们的 skills 目录即可：
 
 | Agent | 路径 |
 |---|---|

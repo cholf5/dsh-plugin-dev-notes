@@ -18,6 +18,19 @@ npm view @deepseek-ai/dsh version
 - npm `latest` is newer than the notes' baseline version (see the recheck log at the bottom)
 - A user reports "the skill says X but the behavior is Y"
 
+## Gate 0 — before every push (30 seconds, on any SKILL.md change)
+
+A frontmatter syntax error fails no build and no CI: hosts just skip the whole file (dsh logs a single warn line nobody tails). Both dsh's skill-filesystem and the [skills](https://github.com/vercel-labs/skills) CLI reject the same class of YAML, so one command catches the entire class:
+
+```sh
+npx -y skills add . --list   # from the repo root
+```
+
+- ✅ prints `dsh-plugin-dev-notes` with its description → safe to push
+- ❌ `No skills found` (or a YAML parse error) → fix the frontmatter before pushing
+
+The usual suspect: an unquoted scalar containing `: ` (colon + space). Quote `description` and `whenToUse`. This shipped once — `e94d837` put a bare colon into `description`, and the skill silently stopped loading everywhere until 2026-09-20 (see the log).
+
 ## Procedure
 
 1. **Fetch the new source without touching the local install** (never disturb a running dsh):
@@ -58,5 +71,6 @@ npm view @deepseek-ai/dsh version
 | 2026-09-18 | d226319 (first-release baseline) | 0.1.5-rc.2 | all 11 facts verified on that version |
 | 2026-09-18 | (this round) | 0.1.6-alpha.2 | F1–F11 no behavioral drift; the only source move: F1's reconcile logic relocated from the dsh CLI's `lib/plugin-*.js` into the new package `@deepseek-ai/dsh-plugin-manager/lib/index.js` (`reconcile()`, same semantics: new deps declaring `dsh.bundle.patch` are auto-pushed into bundles; deps without one are installed as plain dependencies with a warning). fact-sources.md citations updated. |
 | 2026-09-19 | (this round) | 0.1.5-rc.2 | Correction (user report, the §When-to-run trigger): "unauthenticated curl → 401 = route registered" was wrong. Control-tested: a nonexistent /api path also returns 401 — the fence rejects *before* route matching (consistent with F3), so unauth 401 proves only "fence up". Source: `requestRejection()` runs in the `/api` channel handler before `createSharedFetchHandler` does the `fetchRoutes` lookup. Fixed probe everywhere: mint a cookie (`?token=` → 303) then expect handler body vs 404 "not found" (live-verified: fake path → 404, real route → 400 "missing path", `/` → 200). Affected SKILL.md §1/§4.3/§5/§8/§9, web-ui-plugins.md, fact-sources.md. |
+| 2026-09-20 | (this round) | — | Not a fact drift — a delivery bug: `e94d837` introduced an unquoted ASCII `: ` into the SKILL.md `description` (English migration), making the frontmatter invalid YAML. dsh's skill-filesystem and the skills CLI both skipped the whole skill, so it silently stopped loading in every scope. Fixed by quoting `description`/`whenToUse`; Gate 0 (above) added so the class is caught pre-push. |
 
 > Baseline: everything in these notes was first verified on `@deepseek-ai/dsh@0.1.5-rc.2` (2026-09-18).
